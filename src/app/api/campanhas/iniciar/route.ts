@@ -18,21 +18,22 @@ interface ContatoLean {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    // Obter o ID da campanha
+    const { id } = await request.json();
     
-    if (!body.campanhaId) {
+    // Validar ID
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        { error: 'ID da campanha é obrigatório' },
+        { error: 'ID de campanha inválido ou ausente' },
         { status: 400 }
       );
     }
-
-    // Conectar ao banco de dados usando Mongoose
-    await connectToDatabase();
-    const campanhaId = body.campanhaId;
     
-    // Busca a campanha usando Mongoose
-    const campanha = await CampanhaModel.findById(campanhaId);
+    // Conectar ao banco de dados
+    await connectToDatabase();
+    
+    // Buscar a campanha
+    const campanha = await CampanhaModel.findById(id);
     
     if (!campanha) {
       return NextResponse.json(
@@ -41,39 +42,59 @@ export async function POST(request: Request) {
       );
     }
     
-    // Atualiza o status da campanha para "running"
+    // Verificar status da campanha
+    if (campanha.status === 'completed') {
+      return NextResponse.json(
+        { error: 'Esta campanha já foi concluída' },
+        { status: 400 }
+      );
+    }
+    
+    if (campanha.status === 'running') {
+      return NextResponse.json(
+        { error: 'Esta campanha já está em execução' },
+        { status: 400 }
+      );
+    }
+    
+    // Atualizar status para running
     campanha.status = 'running';
-    campanha.estatisticas.total = 0;
-    campanha.estatisticas.enviadas = 0;
-    campanha.estatisticas.entregues = 0;
-    campanha.estatisticas.lidas = 0;
-    campanha.estatisticas.falhas = 0;
     campanha.atualizadoEm = new Date();
     await campanha.save();
     
-    // Determina quais contatos receberão a mensagem
+    // Obter contatos destinatários
     let contatos: ContatoLean[] = [];
     
-    // Se há contatos selecionados específicos
     if (campanha.destinatarios && campanha.destinatarios.length > 0) {
+      // Filtrar apenas números válidos, removendo caracteres não numéricos
+      const numerosValidos = campanha.destinatarios.filter((num: string) => {
+        const numLimpo = num.replace(/\D/g, '');
+        return numLimpo.length >= 10; // Número com DDD no Brasil
+      });
+      
+      // Buscar contatos pelo número
       const result = await ContatoModel.find({
-        telefone: { $in: campanha.destinatarios }
+        telefone: { $in: numerosValidos }
       }).lean();
+      
       contatos = result as unknown as ContatoLean[];
-    } 
-    // Se há grupos selecionados
-    else if (body.grupos && body.grupos.length > 0) {
-      const result = await ContatoModel.find({
-        grupos: { $in: body.grupos }
-      }).lean();
-      contatos = result as unknown as ContatoLean[];
-    } 
-    // Se há tags selecionadas
-    else if (body.tags && body.tags.length > 0) {
-      const result = await ContatoModel.find({
-        tags: { $in: body.tags }
-      }).lean();
-      contatos = result as unknown as ContatoLean[];
+      
+      // Se não encontrou todos, adicionar os números que não têm contato
+      if (contatos.length < numerosValidos.length) {
+        const telefonesEncontrados = contatos.map(c => c.telefone);
+        const telefonesNaoEncontrados = numerosValidos.filter(
+          (num: string) => !telefonesEncontrados.includes(num)
+        );
+        
+        // Adicionar números não encontrados como "contatos simples"
+        telefonesNaoEncontrados.forEach((telefone: string) => {
+          contatos.push({
+            _id: new mongoose.Types.ObjectId(),
+            nome: 'Destinatário',
+            telefone
+          });
+        });
+      }
     }
     
     // Se não houver contatos, retorna erro
@@ -103,13 +124,19 @@ export async function POST(request: Request) {
     // Inicializa o serviço de WhatsApp
     const whatsappService = new WhatsAppService();
     
+    console.log(`Iniciando envio para ${contatos.length} contatos. Campanha: ${campanha.nome}`);
+    
     // Divide os contatos em lotes para evitar sobrecarga
     for (let i = 0; i < contatos.length; i += limiteEnvios) {
       const loteContatos = contatos.slice(i, i + limiteEnvios);
       
+      console.log(`Processando lote ${Math.floor(i/limiteEnvios) + 1}/${Math.ceil(contatos.length/limiteEnvios)}`);
+      
       // Processa cada contato no lote sequencialmente
       for (const contato of loteContatos) {
         try {
+          console.log(`Enviando para ${contato.nome} (${contato.telefone})`);
+          
           let sucesso = false;
           
           // Enviar mensagem baseada no tipo da campanha
@@ -123,8 +150,8 @@ export async function POST(request: Request) {
             sucesso = await whatsappService.sendTextMessage(
               contato.telefone,
               mensagemPersonalizada
-            );
-          } else {
+            ) !== null;
+          } else if (campanha.mediaUrl) {
             // Para envios com mídia (imagem, vídeo, documento)
             const mensagemPersonalizada = campanha.mensagem
               ? campanha.mensagem
@@ -139,20 +166,25 @@ export async function POST(request: Request) {
               
             sucesso = await whatsappService.sendMediaMessage(
               contato.telefone,
-              campanha.mediaUrl || '',
+              campanha.mediaUrl,
               mensagemPersonalizada,
               mediaType
-            );
+            ) !== null;
+          } else {
+            console.log('Tipo de mensagem não suportado ou URL de mídia ausente');
+            sucesso = false;
           }
 
           if (sucesso) {
             // Incrementa enviadas na estatística
             campanha.estatisticas.enviadas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: true });
+            console.log(`✅ Mensagem enviada com sucesso para ${contato.telefone}`);
           } else {
             // Incrementa falhas na estatística
             campanha.estatisticas.falhas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: false });
+            console.log(`❌ Falha ao enviar mensagem para ${contato.telefone}`);
           }
           
           campanha.atualizadoEm = new Date();
@@ -171,6 +203,8 @@ export async function POST(request: Request) {
       }
     }
     
+    console.log(`Campanha concluída. Enviadas: ${campanha.estatisticas.enviadas}, Falhas: ${campanha.estatisticas.falhas}`);
+    
     // Finaliza a campanha
     campanha.status = 'completed';
     campanha.atualizadoEm = new Date();
@@ -184,7 +218,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Erro ao iniciar campanha:', error);
     return NextResponse.json(
-      { error: 'Erro ao iniciar campanha' },
+      { error: 'Erro ao iniciar campanha', details: error instanceof Error ? error.message : 'Erro desconhecido' },
       { status: 500 }
     );
   }

@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { getEvolutionApiConfig } from './configService';
 
 /**
  * Interface para mensagem do WhatsApp
@@ -10,13 +9,6 @@ export interface WhatsAppMessage {
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'document';
   filename?: string;
-}
-
-// Tipos para respostas da API
-interface WhatsAppStatus {
-  connected: boolean;
-  state?: string;
-  qrCode?: string;
 }
 
 // Interface para mensagem enviada
@@ -38,44 +30,21 @@ interface MediaOptions {
  */
 export class WhatsAppService {
   private apiUrl: string;
-  private apiKey: string;
   private instance: string;
-  private headers: Record<string, string>;
 
   constructor() {
-    // Valores padrão (serão substituídos ao chamar init())
+    // URL da Evolution API local na VPS (já configurada)
     this.apiUrl = 'http://localhost:8080';
-    this.apiKey = '';
-    this.instance = 'promobot';
-    this.headers = {};
-  }
-
-  /**
-   * Inicializa o serviço com as configurações atuais
-   */
-  async init(): Promise<void> {
-    const config = await getEvolutionApiConfig();
-    
-    this.apiUrl = config.apiUrl;
-    this.apiKey = config.apiKey;
-    this.instance = config.instance;
-    
-    this.headers = {
-      'Content-Type': 'application/json',
-      'apikey': this.apiKey
-    };
+    this.instance = 'PradoBot';
   }
 
   /**
    * Verifica o status da conexão com o WhatsApp
    */
-  async checkConnection(): Promise<WhatsAppStatus> {
-    await this.init();
-    
+  async checkConnection(): Promise<{ connected: boolean; state?: string; qrCode?: string }> {
     try {
       const response = await axios.get(
-        `${this.apiUrl}/instance/connectionState/${this.instance}`,
-        { headers: this.headers }
+        `${this.apiUrl}/instance/connectionState/${this.instance}`
       );
       
       if (response.data && response.data.state) {
@@ -96,37 +65,34 @@ export class WhatsAppService {
   }
 
   /**
-   * Obtém o QR Code para conexão do dispositivo
+   * Formata o número de telefone para o padrão da API
    */
-  async getQRCode(): Promise<string | null> {
-    await this.init();
+  private formatPhoneNumber(phone: string): string {
+    // Remover caracteres não numéricos
+    let formatted = phone.replace(/\D/g, '');
     
-    try {
-      const response = await axios.get(
-        `${this.apiUrl}/instance/qrcode/${this.instance}`,
-        { headers: this.headers }
-      );
-      
-      if (response.data && response.data.qrcode) {
-        return response.data.qrcode;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Erro ao obter QR Code:', error);
-      return null;
+    // Adicionar código do país (55) se não existir e número tiver 10 ou 11 dígitos (BR)
+    if (!formatted.startsWith('55') && (formatted.length === 10 || formatted.length === 11)) {
+      formatted = `55${formatted}`;
     }
+    
+    // Garantir que termine com @c.us para o formato da Evolution API
+    if (!formatted.includes('@')) {
+      formatted = `${formatted}@c.us`;
+    }
+    
+    return formatted;
   }
 
   /**
    * Envia mensagem de texto via WhatsApp
    */
   async sendTextMessage(to: string, message: string): Promise<SentMessage | null> {
-    await this.init();
-    
     try {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
+      
+      console.log(`Enviando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
       
       const response = await axios.post(
         `${this.apiUrl}/message/text/${this.instance}`,
@@ -139,9 +105,10 @@ export class WhatsAppService {
           textMessage: {
             text: message
           }
-        },
-        { headers: this.headers }
+        }
       );
+      
+      console.log('Resposta do envio de texto:', response.data);
       
       if (response.data && response.data.key) {
         return {
@@ -172,14 +139,14 @@ export class WhatsAppService {
   async sendMediaMessage(
     to: string, 
     mediaUrl: string, 
-    mediaType: 'image' | 'video' | 'audio' | 'document',
-    options?: MediaOptions
+    caption: string = '',
+    mediaType: 'image' | 'video' | 'document' | 'audio' = 'image'
   ): Promise<SentMessage | null> {
-    await this.init();
-    
     try {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
+      
+      console.log(`Enviando mídia (${mediaType}) para ${formattedTo}: ${mediaUrl}`);
       
       const endpoint = `${this.apiUrl}/message/${mediaType}/${this.instance}`;
       
@@ -195,13 +162,13 @@ export class WhatsAppService {
         case 'image':
           payload.imageMessage = {
             image: mediaUrl,
-            caption: options?.caption || ''
+            caption: caption || ''
           };
           break;
         case 'video':
           payload.videoMessage = {
             video: mediaUrl,
-            caption: options?.caption || ''
+            caption: caption || ''
           };
           break;
         case 'audio':
@@ -212,17 +179,15 @@ export class WhatsAppService {
         case 'document':
           payload.documentMessage = {
             document: mediaUrl,
-            fileName: options?.filename || 'documento.pdf',
-            caption: options?.caption || ''
+            fileName: 'documento.pdf',
+            caption: caption || ''
           };
           break;
       }
       
-      const response = await axios.post(
-        endpoint,
-        payload,
-        { headers: this.headers }
-      );
+      const response = await axios.post(endpoint, payload);
+      
+      console.log('Resposta do envio de mídia:', response.data);
       
       if (response.data && response.data.key) {
         return {
@@ -235,9 +200,7 @@ export class WhatsAppService {
       
       return null;
     } catch (error) {
-      console.error(`Erro ao enviar mídia (${mediaType}):`, error);
-      
-      // Retornar um objeto de erro para facilitar tratamento no cliente
+      console.error(`Erro ao enviar mensagem de mídia (${mediaType}):`, error);
       return {
         id: Date.now().toString(),
         status: 'failed',
@@ -245,45 +208,6 @@ export class WhatsAppService {
         timestamp: Date.now()
       };
     }
-  }
-
-  /**
-   * Desconecta a instância do WhatsApp
-   */
-  async disconnect(): Promise<boolean> {
-    await this.init();
-    
-    try {
-      const response = await axios.delete(
-        `${this.apiUrl}/instance/logout/${this.instance}`,
-        { headers: this.headers }
-      );
-      
-      return response.data && response.data.success === true;
-    } catch (error) {
-      console.error('Erro ao desconectar WhatsApp:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Formata o número de telefone para padrão internacional
-   */
-  private formatPhoneNumber(phone: string): string {
-    // Remover caracteres não numéricos
-    let clean = phone.replace(/\D/g, '');
-    
-    // Verificar se já está no formato internacional
-    if (clean.startsWith('55') && clean.length >= 12) {
-      return clean;
-    }
-    
-    // Adicionar código do país (Brasil = 55)
-    if (!clean.startsWith('55')) {
-      clean = '55' + clean;
-    }
-    
-    return clean;
   }
 
   /**
@@ -295,59 +219,11 @@ export class WhatsAppService {
       return this.sendMediaMessage(
         message.number,
         message.mediaUrl,
-        message.mediaType,
-        {
-          caption: message.message,
-          filename: message.filename
-        }
+        message.message
       );
     } else {
       // Caso contrário, enviar como mensagem de texto
       return this.sendTextMessage(message.number, message.message);
-    }
-  }
-
-  /**
-   * Enviar mensagem em lote
-   */
-  async sendBatchMessages(messages: WhatsAppMessage[]): Promise<{ success: number; failed: number }> {
-    let success = 0;
-    let failed = 0;
-
-    // Enviar cada mensagem com um atraso para evitar bloqueios
-    for (const message of messages) {
-      try {
-        const result = await this.sendMessage(message);
-        if (result) {
-          success++;
-        } else {
-          failed++;
-        }
-        
-        // Aguardar um intervalo entre as mensagens
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        console.error('Erro ao enviar mensagem em lote:', error);
-        failed++;
-      }
-    }
-
-    return { success, failed };
-  }
-
-  /**
-   * Obter endpoint correto para tipo de mídia
-   */
-  private getMediaEndpoint(mediaType?: 'image' | 'video' | 'document'): string | null {
-    switch (mediaType) {
-      case 'image':
-        return 'image';
-      case 'video':
-        return 'video';
-      case 'document':
-        return 'document';
-      default:
-        return null;
     }
   }
 } 
