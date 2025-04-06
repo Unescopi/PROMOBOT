@@ -19,42 +19,32 @@ interface SentMessage {
   timestamp: number;
 }
 
-// Opções para envio de mídia
-interface MediaOptions {
-  filename?: string;
-  caption?: string;
-}
-
 /**
  * Serviço para integração com WhatsApp via Evolution API
- * A Evolution API já está configurada na VPS e a comunicação é feita via webhook
+ * A Evolution API já está configurada na VPS e a comunicação é feita EXCLUSIVAMENTE via webhook
+ * Este serviço apenas SIMULA o envio de mensagens para manter a compatibilidade com o resto do sistema
  */
 export class WhatsAppService {
   private instance: string;
 
   constructor() {
-    // A integração é feita via webhook - não precisamos de URL direta
+    // A integração é feita EXCLUSIVAMENTE via webhook - não fazemos chamadas diretas à API
     this.instance = 'PradoBot';
-    console.log(`WhatsAppService inicializado: Instância=${this.instance} (comunicação via webhook)`);
+    console.log(`WhatsAppService inicializado: Instância=${this.instance} (comunicação EXCLUSIVAMENTE via webhook)`);
   }
 
   /**
    * Verifica o status da conexão com o WhatsApp
-   * Como usamos webhooks, isso é apenas uma simulação
+   * Como usamos apenas webhooks, isso é apenas uma simulação
    */
   async checkConnection(): Promise<{ connected: boolean; state?: string; qrCode?: string }> {
-    try {
-      console.log(`Verificando status de conexão da instância ${this.instance} (simulado - usando webhooks)`);
-      
-      // Como utilizamos webhooks, assumimos que a conexão está ativa
-      return {
-        connected: true,
-        state: 'open'
-      };
-    } catch (error) {
-      console.error('Erro ao verificar conexão com WhatsApp:', error);
-      return { connected: false };
-    }
+    console.log(`Verificando status de conexão da instância ${this.instance} (SIMULADO - apenas webhooks)`);
+    
+    // Como utilizamos webhooks, assumimos que a conexão está ativa
+    return {
+      connected: true,
+      state: 'open'
+    };
   }
 
   /**
@@ -64,7 +54,7 @@ export class WhatsAppService {
     // Remover caracteres não numéricos
     let formatted = phone.replace(/\D/g, '');
     
-    // Verificar formato específico para Brasil (padrão da Evolution API)
+    // Verificar formato específico para Brasil
     if (formatted.length === 11 && formatted.startsWith('55')) {
       // Já está no formato correto com DDD e país (55)
       // Não fazer nada
@@ -85,7 +75,7 @@ export class WhatsAppService {
       formatted = `55${formatted}`;
     }
     
-    // Garantir que termine com @c.us para o formato da Evolution API
+    // Garantir que termine com @c.us para o formato esperado no webhook
     if (!formatted.includes('@')) {
       formatted = `${formatted}@c.us`;
     }
@@ -95,49 +85,28 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem de texto via WhatsApp
-   * Quando usamos webhooks, isso simula o envio para manter compatibilidade
+   * SIMULA o envio de mensagem de texto via WhatsApp
+   * IMPORTANTE: NÃO faz chamadas HTTP diretas à Evolution API
+   * Toda comunicação é feita exclusivamente via webhook
    */
   async sendTextMessage(to: string, message: string): Promise<SentMessage | null> {
     try {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Enviando mensagem de texto via webhook para ${formattedTo}: ${message.substring(0, 30)}...`);
+      console.log(`[SIMULAÇÃO] Enviando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
+      console.log(`[WEBHOOK ONLY] Comunicação real ocorre apenas via webhook. Esta é uma simulação para fins de compatibilidade.`);
       
-      // Simulamos o envio da mensagem, já que a comunicação real é feita via webhook
-      // A Evolution API receberá a mensagem do WhatsApp e enviará uma notificação para o webhook configurado
-      
-      // Em um sistema real com APIs diretas, usaríamos:
-      /*
-      const payload = {
-        number: formattedTo,
-        options: {
-          delay: 1200,
-          presence: 'composing'
-        },
-        textMessage: {
-          text: message
-        }
-      };
-      
-      const response = await axios.post(
-        `${this.apiUrl}/message/text/${this.instance}`,
-        payload
-      );
-      */
-      
-      // Log para simular o envio
-      console.log('Payload que seria enviado (simulado):', JSON.stringify({
-        number: formattedTo,
-        message: message
-      }));
+      // Log para simular o envio - NÃO fazemos chamadas HTTP à API
+      console.log('[SIMULAÇÃO] Mensagem que seria enviada:', {
+        destinatario: formattedTo,
+        mensagem: message
+      });
       
       // Simular resposta bem-sucedida
-      console.log('Simulando resposta de envio bem-sucedido (integração via webhook)');
+      console.log('[SIMULAÇÃO] Simulando resposta de envio bem-sucedido (webhook only)');
       
       // Retornar um objeto simulando o sucesso do envio
-      // Em produção, o webhook receberá atualizações de status
       return {
         id: `sim_${Date.now().toString()}`,
         status: 'sent',
@@ -145,7 +114,7 @@ export class WhatsAppService {
         timestamp: Date.now()
       };
     } catch (error) {
-      console.error('Erro ao simular envio de mensagem de texto:', error);
+      console.error('[SIMULAÇÃO] Erro ao simular envio de mensagem de texto:', error);
       
       // Retornar um objeto de erro para facilitar tratamento no cliente
       return {
@@ -158,8 +127,9 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem de mídia via WhatsApp
-   * Quando usamos webhooks, isso simula o envio para manter compatibilidade
+   * SIMULA o envio de mensagem de mídia via WhatsApp
+   * IMPORTANTE: NÃO faz chamadas HTTP diretas à Evolution API
+   * Toda comunicação é feita exclusivamente via webhook
    */
   async sendMediaMessage(
     to: string, 
@@ -171,61 +141,19 @@ export class WhatsAppService {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Enviando mídia (${mediaType}) via webhook para ${formattedTo}: ${mediaUrl}`);
+      console.log(`[SIMULAÇÃO] Enviando mídia (${mediaType}) para ${formattedTo}: ${mediaUrl}`);
+      console.log(`[WEBHOOK ONLY] Comunicação real ocorre apenas via webhook. Esta é uma simulação para fins de compatibilidade.`);
       
-      // Simulamos o envio da mensagem com mídia via webhook
-      // Em um sistema real com APIs diretas, usaríamos:
-      /*
-      const endpoint = `${this.apiUrl}/message/${mediaType}/${this.instance}`;
-      
-      const payload: any = {
-        number: formattedTo,
-        options: {
-          delay: 1200
-        }
-      };
-      
-      // Configurar o payload baseado no tipo de mídia
-      switch (mediaType) {
-        case 'image':
-          payload.imageMessage = {
-            image: mediaUrl,
-            caption: caption || ''
-          };
-          break;
-        case 'video':
-          payload.videoMessage = {
-            video: mediaUrl,
-            caption: caption || ''
-          };
-          break;
-        case 'audio':
-          payload.audioMessage = {
-            audio: mediaUrl
-          };
-          break;
-        case 'document':
-          payload.documentMessage = {
-            document: mediaUrl,
-            fileName: 'documento.pdf',
-            caption: caption || ''
-          };
-          break;
-      }
-      
-      const response = await axios.post(endpoint, payload);
-      */
-      
-      // Log para simular o envio de mídia
-      console.log('Payload de mídia que seria enviado (simulado):', JSON.stringify({
-        number: formattedTo,
-        mediaType: mediaType,
-        mediaUrl: mediaUrl,
-        caption: caption
-      }));
+      // Log para simular o envio de mídia - NÃO fazemos chamadas HTTP à API
+      console.log('[SIMULAÇÃO] Mídia que seria enviada:', {
+        destinatario: formattedTo,
+        tipoMidia: mediaType,
+        urlMidia: mediaUrl,
+        legenda: caption
+      });
       
       // Simular resposta bem-sucedida
-      console.log('Simulando resposta de envio de mídia bem-sucedido (integração via webhook)');
+      console.log('[SIMULAÇÃO] Simulando resposta de envio de mídia bem-sucedido (webhook only)');
       
       // Retornar um objeto simulando o sucesso do envio
       return {
@@ -235,7 +163,7 @@ export class WhatsAppService {
         timestamp: Date.now()
       };
     } catch (error) {
-      console.error(`Erro ao simular envio de mídia (${mediaType}):`, error);
+      console.error(`[SIMULAÇÃO] Erro ao simular envio de mídia (${mediaType}):`, error);
       return {
         id: `err_media_${Date.now().toString()}`,
         status: 'failed',
@@ -246,20 +174,22 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem via WhatsApp (texto ou mídia)
+   * SIMULA o envio de mensagem via WhatsApp (texto ou mídia)
+   * IMPORTANTE: NÃO faz chamadas HTTP diretas à Evolution API
+   * Esta função define se é para enviar texto ou mídia, mas ambos são apenas simulados
    */
   async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
-    console.log(`Processando envio de mensagem para ${message.number}`);
+    console.log(`[SIMULAÇÃO] Processando envio de mensagem para ${message.number}`);
     
     if (message.mediaUrl && message.mediaType) {
-      // Se tiver mídia, enviar como mensagem de mídia
+      // Se tiver mídia, simular envio como mensagem de mídia
       return this.sendMediaMessage(
         message.number,
         message.mediaUrl,
         message.message
       );
     } else {
-      // Caso contrário, enviar como mensagem de texto
+      // Caso contrário, simular envio como mensagem de texto
       return this.sendTextMessage(message.number, message.message);
     }
   }

@@ -22,7 +22,8 @@ export async function POST(request: Request) {
     console.log(`Horário atual do servidor: ${new Date().toISOString()}`);
     console.log(`Timestamp: ${Date.now()}`);
     console.log(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
-    console.log(`Mode de integração: Webhook - comunicação através de webhooks da Evolution API`);
+    console.log(`Mode de integração: Webhook APENAS - comunicação ocorre EXCLUSIVAMENTE através de webhooks`);
+    console.log(`IMPORTANTE: Não fazemos chamadas diretas à Evolution API. Apenas simulamos o envio.`);
     
     // Obter o ID da campanha
     const { id } = await request.json();
@@ -144,7 +145,7 @@ export async function POST(request: Request) {
       // Processa cada contato no lote sequencialmente
       for (const contato of loteContatos) {
         try {
-          console.log(`Enviando para ${contato.nome} (${contato.telefone})`);
+          console.log(`[SIMULAÇÃO] Preparando envio para ${contato.nome} (${contato.telefone})`);
           
           let sucesso = false;
           
@@ -155,15 +156,16 @@ export async function POST(request: Request) {
               .replace(/{nome}/g, contato.nome || '')
               .replace(/{empresa}/g, 'Sua Empresa');
               
-            // Enviar mensagem de texto (simulado via webhook)
+            // SIMULAÇÃO de envio de mensagem de texto
+            console.log(`[SIMULAÇÃO] Enviando mensagem para ${contato.telefone}: "${mensagemPersonalizada.substring(0, 30)}..."`);
             const resultado = await whatsappService.sendTextMessage(
               contato.telefone,
               mensagemPersonalizada
             );
             
-            // Verifica se o envio foi bem-sucedido
+            // Verifica se a simulação foi bem-sucedida
             sucesso = resultado?.status === 'sent';
-            console.log(`Resultado do envio (webhook): ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
+            console.log(`[SIMULAÇÃO] Resultado do envio: ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
             
           } else if (campanha.mediaUrl) {
             // Para envios com mídia (imagem, vídeo, documento)
@@ -178,7 +180,8 @@ export async function POST(request: Request) {
               campanha.tipo === 'imagem' ? 'image' : 
               campanha.tipo === 'video' ? 'video' : 'document';
               
-            // Enviar mensagem com mídia (simulado via webhook)
+            // SIMULAÇÃO de envio de mensagem com mídia
+            console.log(`[SIMULAÇÃO] Enviando mídia (${mediaType}) para ${contato.telefone}`);
             const resultado = await whatsappService.sendMediaMessage(
               contato.telefone,
               campanha.mediaUrl,
@@ -186,12 +189,12 @@ export async function POST(request: Request) {
               mediaType
             );
             
-            // Verifica se o envio foi bem-sucedido
+            // Verifica se a simulação foi bem-sucedida
             sucesso = resultado?.status === 'sent';
-            console.log(`Resultado do envio de mídia (webhook): ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
+            console.log(`[SIMULAÇÃO] Resultado do envio de mídia: ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
             
           } else {
-            console.log('Tipo de mensagem não suportado ou URL de mídia ausente');
+            console.log('[SIMULAÇÃO] Tipo de mensagem não suportado ou URL de mídia ausente');
             sucesso = false;
           }
 
@@ -199,12 +202,12 @@ export async function POST(request: Request) {
             // Incrementa enviadas na estatística
             campanha.estatisticas.enviadas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: true });
-            console.log(`✅ Mensagem enviada via webhook para ${contato.telefone} (simulação bem-sucedida)`);
+            console.log(`✅ [SIMULAÇÃO] Envio simulado com sucesso para ${contato.telefone}`);
           } else {
             // Incrementa falhas na estatística
             campanha.estatisticas.falhas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: false });
-            console.log(`❌ Falha ao enviar mensagem via webhook para ${contato.telefone}`);
+            console.log(`❌ [SIMULAÇÃO] Falha ao simular envio para ${contato.telefone}`);
           }
           
           campanha.atualizadoEm = new Date();
