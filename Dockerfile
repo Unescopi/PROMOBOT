@@ -25,6 +25,10 @@ PORT=3001\n" > .env.local
 ENV NEXT_LINT=false
 RUN npm run build
 
+# Copiar arquivos estáticos para o local correto
+RUN cp -r .next/static .next/standalone/.next/
+RUN cp -r public .next/standalone/
+
 # Configurar para execução
 EXPOSE 3001
 ENV PORT=3001

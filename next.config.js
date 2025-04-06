@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   output: 'standalone',
   basePath: '',
   assetPrefix: '',
@@ -12,7 +11,7 @@ const nextConfig: NextConfig = {
     // Ignorar erros de TypeScript durante o build de produção
     ignoreBuildErrors: true,
   },
-  /* config options here */
+  /* Outras opções aqui */
 };
 
-export default nextConfig;
+module.exports = nextConfig; 
