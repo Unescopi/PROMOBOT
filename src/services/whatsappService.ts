@@ -287,6 +287,27 @@ export class WhatsAppService {
   }
 
   /**
+   * Envia mensagem via WhatsApp (texto ou mídia)
+   */
+  async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
+    if (message.mediaUrl && message.mediaType) {
+      // Se tiver mídia, enviar como mensagem de mídia
+      return this.sendMediaMessage(
+        message.number,
+        message.mediaUrl,
+        message.mediaType,
+        {
+          caption: message.message,
+          filename: message.filename
+        }
+      );
+    } else {
+      // Caso contrário, enviar como mensagem de texto
+      return this.sendTextMessage(message.number, message.message);
+    }
+  }
+
+  /**
    * Enviar mensagem em lote
    */
   async sendBatchMessages(messages: WhatsAppMessage[]): Promise<{ success: number; failed: number }> {
