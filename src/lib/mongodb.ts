@@ -60,7 +60,7 @@ export async function connectToDatabase() {
     // Tentar conectar com timeout
     cached.promise = Promise.race([
       mongoose
-        .connect(MONGODB_URI, opts)
+        .connect(MONGODB_URI, { ...opts, w: 'majority' as const })
         .then((mongoose) => {
           console.log('MongoDB conectado com sucesso');
           // Limpar flag de erro quando conexão bem-sucedida
