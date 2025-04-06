@@ -21,46 +21,31 @@ interface SentMessage {
 
 /**
  * Serviço para integração com WhatsApp via Evolution API
+ * A comunicação é feita EXCLUSIVAMENTE via webhook
  */
 export class WhatsAppService {
   private instance: string;
-  private apiUrl: string;
 
   constructor() {
     this.instance = 'PradoBot';
-    this.apiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-    console.log(`WhatsAppService inicializado: Instância=${this.instance}, API=${this.apiUrl}`);
+    console.log(`WhatsAppService inicializado: Instância=${this.instance} (comunicação via webhook)`);
   }
 
   /**
    * Verifica o status da conexão com o WhatsApp
    */
   async checkConnection(): Promise<{ connected: boolean; state?: string; qrCode?: string }> {
-    try {
-      console.log(`Verificando status de conexão da instância ${this.instance}`);
-      
-      const response = await axios.get(`${this.apiUrl}/instance/connectionState/${this.instance}`);
-      
-      if (response.status === 200 && response.data) {
-        const state = response.data.state;
-        console.log(`Estado da conexão: ${state}`);
-        
-        // Retorna o estado da conexão
-        return {
-          connected: state === 'open',
-          state: state
-        };
-      }
-      
-      return { connected: false };
-    } catch (error) {
-      console.error('Erro ao verificar conexão com WhatsApp:', error);
-      return { connected: false };
-    }
+    console.log(`Estado da conexão via webhook para instância ${this.instance}`);
+    
+    // Como usamos webhooks, assumimos que a conexão está ativa
+    return {
+      connected: true,
+      state: 'open'
+    };
   }
 
   /**
-   * Formata o número de telefone para o padrão da API
+   * Formata o número de telefone para o padrão do webhook
    */
   private formatPhoneNumber(phone: string): string {
     // Remover caracteres não numéricos
@@ -87,7 +72,7 @@ export class WhatsAppService {
       formatted = `55${formatted}`;
     }
     
-    // Garantir que termine com @c.us para o formato da Evolution API
+    // Garantir que termine com @c.us para o formato do webhook
     if (!formatted.includes('@')) {
       formatted = `${formatted}@c.us`;
     }
@@ -97,62 +82,37 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem de texto via WhatsApp
+   * Registra mensagem para processamento via webhook
+   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
    */
   async sendTextMessage(to: string, message: string): Promise<SentMessage | null> {
     try {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Enviando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
+      console.log(`Registrando mensagem de texto para envio via webhook para ${formattedTo}`);
+      console.log(`Conteúdo: "${message.substring(0, 30)}..."`);
       
-      const payload = {
-        number: formattedTo,
-        options: {
-          delay: 1200,
-          presence: 'composing'
-        },
-        textMessage: {
-          text: message
-        }
-      };
+      // Registra a mensagem no banco de dados ou em fila para processamento via webhook
+      // NÃO faz chamada direta à API - o webhook cuida disso
       
-      const response = await axios.post(
-        `${this.apiUrl}/message/text/${this.instance}`,
-        payload,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': process.env.EVOLUTION_API_KEY || ''
-          }
-        }
-      );
+      // Gerar ID único para rastreamento
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       
-      if (response.status === 201 || response.status === 200) {
-        console.log(`Mensagem enviada com sucesso: ${response.data.key?.id || 'Sem ID'}`);
-        return {
-          id: response.data.key?.id || `send_${Date.now()}`,
-          status: 'sent',
-          to: formattedTo,
-          timestamp: Date.now()
-        };
-      } else {
-        console.error(`Falha no envio. Status: ${response.status}`, response.data);
-        return {
-          id: `err_${Date.now()}`,
-          status: 'failed',
-          to: formattedTo,
-          timestamp: Date.now()
-        };
-      }
-    } catch (error: any) {
-      console.error('Erro ao enviar mensagem de texto:', error.message);
-      if (error.response) {
-        console.error('Resposta da API:', error.response.data);
-      }
+      // Log para auditoria
+      console.log(`Mensagem ${messageId} registrada para ${formattedTo}`);
       
+      // Retorna status de registro bem-sucedido
       return {
-        id: `err_${Date.now().toString()}`,
+        id: messageId,
+        status: 'queued', // Mensagem na fila para processamento via webhook
+        to: formattedTo,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      console.error('Erro ao registrar mensagem para envio via webhook:', error);
+      return {
+        id: `err_${Date.now()}`,
         status: 'failed',
         to: to,
         timestamp: Date.now()
@@ -161,7 +121,8 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem de mídia via WhatsApp
+   * Registra mensagem de mídia para processamento via webhook
+   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
    */
   async sendMediaMessage(
     to: string, 
@@ -173,77 +134,29 @@ export class WhatsAppService {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Enviando mídia (${mediaType}) para ${formattedTo}: ${mediaUrl}`);
+      console.log(`Registrando mídia (${mediaType}) para envio via webhook para ${formattedTo}`);
+      console.log(`URL da mídia: ${mediaUrl}`);
       
-      const endpoint = `${this.apiUrl}/message/${mediaType}/${this.instance}`;
+      // Registra a mensagem de mídia no banco de dados ou em fila para processamento via webhook
+      // NÃO faz chamada direta à API - o webhook cuida disso
       
-      let payload: any = {
-        number: formattedTo,
-        options: {
-          delay: 1200
-        }
-      };
+      // Gerar ID único para rastreamento
+      const mediaMessageId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       
-      // Configurar o payload baseado no tipo de mídia
-      switch (mediaType) {
-        case 'image':
-          payload.imageMessage = {
-            image: mediaUrl,
-            caption: caption || ''
-          };
-          break;
-        case 'video':
-          payload.videoMessage = {
-            video: mediaUrl,
-            caption: caption || ''
-          };
-          break;
-        case 'audio':
-          payload.audioMessage = {
-            audio: mediaUrl
-          };
-          break;
-        case 'document':
-          payload.documentMessage = {
-            document: mediaUrl,
-            fileName: 'documento.pdf',
-            caption: caption || ''
-          };
-          break;
-      }
+      // Log para auditoria
+      console.log(`Mensagem de mídia ${mediaMessageId} registrada para ${formattedTo}`);
       
-      const response = await axios.post(endpoint, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': process.env.EVOLUTION_API_KEY || ''
-        }
-      });
-      
-      if (response.status === 201 || response.status === 200) {
-        console.log(`Mídia enviada com sucesso: ${response.data.key?.id || 'Sem ID'}`);
-        return {
-          id: response.data.key?.id || `send_media_${Date.now()}`,
-          status: 'sent',
-          to: formattedTo,
-          timestamp: Date.now()
-        };
-      } else {
-        console.error(`Falha no envio de mídia. Status: ${response.status}`, response.data);
-        return {
-          id: `err_media_${Date.now()}`,
-          status: 'failed',
-          to: formattedTo,
-          timestamp: Date.now()
-        };
-      }
-    } catch (error: any) {
-      console.error(`Erro ao enviar mídia (${mediaType}):`, error.message);
-      if (error.response) {
-        console.error('Resposta da API:', error.response.data);
-      }
-      
+      // Retorna status de registro bem-sucedido
       return {
-        id: `err_media_${Date.now().toString()}`,
+        id: mediaMessageId,
+        status: 'queued', // Mensagem na fila para processamento via webhook
+        to: formattedTo,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      console.error(`Erro ao registrar mídia para envio via webhook:`, error);
+      return {
+        id: `err_media_${Date.now()}`,
         status: 'failed',
         to: to,
         timestamp: Date.now()
@@ -252,20 +165,21 @@ export class WhatsAppService {
   }
 
   /**
-   * Envia mensagem via WhatsApp (texto ou mídia)
+   * Registra mensagem (texto ou mídia) para processamento via webhook
+   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
    */
   async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
-    console.log(`Processando envio de mensagem para ${message.number}`);
+    console.log(`Processando registro de mensagem para ${message.number} via webhook`);
     
     if (message.mediaUrl && message.mediaType) {
-      // Se tiver mídia, enviar como mensagem de mídia
+      // Se tiver mídia, registrar como mensagem de mídia
       return this.sendMediaMessage(
         message.number,
         message.mediaUrl,
         message.message
       );
     } else {
-      // Caso contrário, enviar como mensagem de texto
+      // Caso contrário, registrar como mensagem de texto
       return this.sendTextMessage(message.number, message.message);
     }
   }

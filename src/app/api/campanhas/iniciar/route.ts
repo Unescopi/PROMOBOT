@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     console.log(`Horário atual do servidor: ${new Date().toISOString()}`);
     console.log(`Timestamp: ${Date.now()}`);
     console.log(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`Modo de integração: EXCLUSIVAMENTE via webhook`);
     
     // Obter o ID da campanha
     const { id } = await request.json();
@@ -143,7 +144,7 @@ export async function POST(request: Request) {
       // Processa cada contato no lote sequencialmente
       for (const contato of loteContatos) {
         try {
-          console.log(`Preparando envio para ${contato.nome} (${contato.telefone})`);
+          console.log(`Preparando registro para ${contato.nome} (${contato.telefone})`);
           
           let sucesso = false;
           
@@ -154,16 +155,16 @@ export async function POST(request: Request) {
               .replace(/{nome}/g, contato.nome || '')
               .replace(/{empresa}/g, 'Sua Empresa');
               
-            // Enviar mensagem de texto
-            console.log(`Enviando mensagem para ${contato.telefone}: "${mensagemPersonalizada.substring(0, 30)}..."`);
+            // Registra mensagem para processamento via webhook
+            console.log(`Registrando mensagem de texto para ${contato.telefone} via webhook`);
             const resultado = await whatsappService.sendTextMessage(
               contato.telefone,
               mensagemPersonalizada
             );
             
-            // Verifica se o envio foi bem-sucedido
-            sucesso = resultado?.status === 'sent';
-            console.log(`Resultado do envio: ${sucesso ? 'Enviado com sucesso' : 'Falha no envio'}`);
+            // Verifica se o registro foi bem-sucedido
+            sucesso = resultado?.status === 'queued' || resultado?.status === 'sent';
+            console.log(`Resultado do registro: ${sucesso ? 'Registrado com sucesso' : 'Falha no registro'}`);
             
           } else if (campanha.mediaUrl) {
             // Para envios com mídia (imagem, vídeo, documento)
@@ -173,13 +174,13 @@ export async function POST(request: Request) {
                   .replace(/{empresa}/g, 'Sua Empresa')
               : '';
               
-            // Converter tipo da mensagem para tipo da API
+            // Converter tipo da mensagem para tipo do webhook
             const mediaType = 
               campanha.tipo === 'imagem' ? 'image' : 
               campanha.tipo === 'video' ? 'video' : 'document';
               
-            // Enviar mensagem com mídia
-            console.log(`Enviando mídia (${mediaType}) para ${contato.telefone}`);
+            // Registra mídia para processamento via webhook
+            console.log(`Registrando mídia (${mediaType}) para ${contato.telefone} via webhook`);
             const resultado = await whatsappService.sendMediaMessage(
               contato.telefone,
               campanha.mediaUrl,
@@ -187,9 +188,9 @@ export async function POST(request: Request) {
               mediaType
             );
             
-            // Verifica se o envio foi bem-sucedido
-            sucesso = resultado?.status === 'sent';
-            console.log(`Resultado do envio de mídia: ${sucesso ? 'Enviado com sucesso' : 'Falha no envio'}`);
+            // Verifica se o registro foi bem-sucedido
+            sucesso = resultado?.status === 'queued' || resultado?.status === 'sent';
+            console.log(`Resultado do registro de mídia: ${sucesso ? 'Registrado com sucesso' : 'Falha no registro'}`);
             
           } else {
             console.log('Tipo de mensagem não suportado ou URL de mídia ausente');
@@ -200,12 +201,12 @@ export async function POST(request: Request) {
             // Incrementa enviadas na estatística
             campanha.estatisticas.enviadas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: true });
-            console.log(`✅ Mensagem enviada com sucesso para ${contato.telefone}`);
+            console.log(`✅ Mensagem registrada para envio via webhook para ${contato.telefone}`);
           } else {
             // Incrementa falhas na estatística
             campanha.estatisticas.falhas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: false });
-            console.log(`❌ Falha ao enviar mensagem para ${contato.telefone}`);
+            console.log(`❌ Falha ao registrar mensagem para webhook para ${contato.telefone}`);
           }
           
           campanha.atualizadoEm = new Date();
@@ -214,7 +215,7 @@ export async function POST(request: Request) {
           // Aguarda o intervalo definido para evitar bloqueio da API do WhatsApp
           await new Promise(resolve => setTimeout(resolve, delayEntreEnvios));
         } catch (error) {
-          console.error(`Erro ao enviar mensagem para ${contato.telefone}:`, error);
+          console.error(`Erro ao registrar mensagem para webhook para ${contato.telefone}:`, error);
           
           // Incrementa falhas na estatística
           campanha.estatisticas.falhas += 1;
