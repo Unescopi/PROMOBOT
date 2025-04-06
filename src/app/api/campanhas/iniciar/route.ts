@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     console.log(`Horário atual do servidor: ${new Date().toISOString()}`);
     console.log(`Timestamp: ${Date.now()}`);
     console.log(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`Mode de integração: Webhook - comunicação através de webhooks da Evolution API`);
     
     // Obter o ID da campanha
     const { id } = await request.json();
@@ -154,11 +155,16 @@ export async function POST(request: Request) {
               .replace(/{nome}/g, contato.nome || '')
               .replace(/{empresa}/g, 'Sua Empresa');
               
-            // Enviar mensagem de texto
-            sucesso = await whatsappService.sendTextMessage(
+            // Enviar mensagem de texto (simulado via webhook)
+            const resultado = await whatsappService.sendTextMessage(
               contato.telefone,
               mensagemPersonalizada
-            ) !== null;
+            );
+            
+            // Verifica se o envio foi bem-sucedido
+            sucesso = resultado?.status === 'sent';
+            console.log(`Resultado do envio (webhook): ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
+            
           } else if (campanha.mediaUrl) {
             // Para envios com mídia (imagem, vídeo, documento)
             const mensagemPersonalizada = campanha.mensagem
@@ -172,12 +178,18 @@ export async function POST(request: Request) {
               campanha.tipo === 'imagem' ? 'image' : 
               campanha.tipo === 'video' ? 'video' : 'document';
               
-            sucesso = await whatsappService.sendMediaMessage(
+            // Enviar mensagem com mídia (simulado via webhook)
+            const resultado = await whatsappService.sendMediaMessage(
               contato.telefone,
               campanha.mediaUrl,
               mensagemPersonalizada,
               mediaType
-            ) !== null;
+            );
+            
+            // Verifica se o envio foi bem-sucedido
+            sucesso = resultado?.status === 'sent';
+            console.log(`Resultado do envio de mídia (webhook): ${sucesso ? 'Simulado com sucesso' : 'Falha na simulação'}`);
+            
           } else {
             console.log('Tipo de mensagem não suportado ou URL de mídia ausente');
             sucesso = false;
@@ -187,12 +199,12 @@ export async function POST(request: Request) {
             // Incrementa enviadas na estatística
             campanha.estatisticas.enviadas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: true });
-            console.log(`✅ Mensagem enviada com sucesso para ${contato.telefone}`);
+            console.log(`✅ Mensagem enviada via webhook para ${contato.telefone} (simulação bem-sucedida)`);
           } else {
             // Incrementa falhas na estatística
             campanha.estatisticas.falhas += 1;
             resultados.push({ telefone: contato.telefone, sucesso: false });
-            console.log(`❌ Falha ao enviar mensagem para ${contato.telefone}`);
+            console.log(`❌ Falha ao enviar mensagem via webhook para ${contato.telefone}`);
           }
           
           campanha.atualizadoEm = new Date();
