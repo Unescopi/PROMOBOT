@@ -28,34 +28,58 @@ export async function POST(request: NextRequest) {
     // Obter corpo da requisição
     const body = await request.json();
     
-    // Log para debug
-    console.log('Webhook recebido:', {
-      type: body.type || 'desconhecido',
+    // Log para debug completo
+    console.log('Webhook recebido (completo):', JSON.stringify(body).substring(0, 500));
+    
+    // Log resumido para debug
+    console.log('Webhook recebido (resumo):', {
+      type: body.type || body.event || 'desconhecido',
       instance: body.instance || 'não especificada',
       timestamp: new Date().toISOString()
     });
     
     let response;
     
-    // Detectar o formato da Evolution API (pode variar dependendo da versão)
-    if (body.event) {
-      // Formato antigo: { event: 'message', message: {...} }
-      if (body.event === 'message' && body.message) {
-        response = await WebhookService.processIncomingMessage(body.message);
-      } else if (body.event === 'status' && body.status) {
-        response = await WebhookService.updateMessageStatus(body.status);
-      } else if (body.event === 'connection' && body.connection) {
-        response = await WebhookService.handleDeviceConnection(body.connection);
-      } else {
-        // Evento desconhecido no formato antigo
-        console.log('Evento recebido em formato antigo:', body);
-        return NextResponse.json({
-          success: true,
-          message: 'Evento recebido mas não processado'
-        });
-      }
-    } else if (body.type) {
-      // Formato novo: { type: 'message', data: {...} }
+    // Detectar o formato da Evolution API (pode variar dependendo da versão e configuração)
+    
+    // Formato específico da Evolution API (v1)
+    if (body.event === 'messages.upsert' && body.data?.messages) {
+      console.log('Formato Evolution API v1 detectado (messages.upsert)');
+      
+      // Processar a primeira mensagem na lista
+      const message = body.data.messages[0];
+      
+      // Adaptar para o formato esperado pelo WebhookService
+      const adaptedMessage = {
+        instance: body.instance || 'evolution',
+        messageType: message.key.fromMe ? 'outgoing' : 'text',
+        from: message.key.remoteJid,
+        to: message.key.remoteJid,
+        content: message.message?.conversation || message.message?.extendedTextMessage?.text || '',
+        timestamp: message.messageTimestamp * 1000,
+        isGroup: message.key.remoteJid?.endsWith('@g.us') || false
+      };
+      
+      response = await WebhookService.processIncomingMessage(adaptedMessage);
+    }
+    // Formato específico da Evolution API (v2)
+    else if (body.event === 'message' && body.message) {
+      console.log('Formato Evolution API v2 detectado (event: message)');
+      response = await WebhookService.processIncomingMessage(body.message);
+    }
+    // Formato da mensagem status
+    else if (body.event === 'status' && body.status) {
+      console.log('Formato de status detectado');
+      response = await WebhookService.updateMessageStatus(body.status);
+    }
+    // Formato de conexão
+    else if (body.event === 'connection' && body.connection) {
+      console.log('Formato de conexão detectado');
+      response = await WebhookService.handleDeviceConnection(body.connection);
+    }
+    // Formato novo/genérico: { type: 'message', data: {...} }
+    else if (body.type) {
+      console.log(`Formato genérico detectado com tipo: ${body.type}`);
       switch (body.type) {
         case 'message':
           // Processar mensagem recebida
@@ -80,12 +104,15 @@ export async function POST(request: NextRequest) {
             message: `Evento recebido: ${body.type}`
           });
       }
-    } else {
-      // Formato desconhecido - tentar processar como mensagem direta
-      console.log('Formato de webhook desconhecido:', JSON.stringify(body).substring(0, 200) + '...');
+    }
+    // Formato desconhecido - tentar processar como mensagem direta
+    else {
+      console.log('Formato de webhook desconhecido ou não suportado');
       
       // Tentar processar como mensagem direta se tiver campos relevantes
       if (body.from && (body.body || body.content || body.message)) {
+        console.log('Tentando processar como mensagem direta');
+        
         const adaptedMessage = {
           instance: body.instance || 'direct',
           messageType: body.type || 'text',
@@ -99,6 +126,7 @@ export async function POST(request: NextRequest) {
         response = await WebhookService.processIncomingMessage(adaptedMessage);
       } else {
         // Aceitar a requisição mas avisar que não foi processada
+        console.log('Impossível processar o formato recebido');
         return NextResponse.json({
           success: true,
           message: 'Webhook recebido em formato desconhecido'
@@ -126,6 +154,7 @@ export async function POST(request: NextRequest) {
  * Pode ser usado para validar a configuração do webhook na EvolutionAPI
  */
 export async function GET(request: NextRequest) {
+  console.log('Requisição GET recebida no webhook - Verificação de status');
   return NextResponse.json({
     success: true,
     message: 'Webhook do PromoBot está ativo e funcionando',

@@ -1,6 +1,7 @@
 import { connectToDatabase } from '@/lib/mongodb';
 import mongoose from 'mongoose';
 import ContatoSimplesModel from '@/models/ContatoSimples';
+import crypto from 'crypto';
 
 // Interface para resposta do webhook
 interface WebhookResponse {
@@ -48,12 +49,47 @@ interface ConnectionStatus {
  */
 export const WebhookService = {
   /**
+   * Valida o token do webhook (se necessário)
+   * @param token Token fornecido no cabeçalho
+   * @param secret Segredo configurado
+   */
+  validateWebhook: (token: string | null, secret: string): boolean => {
+    // Se não tiver um segredo configurado, sempre válido
+    if (!secret) return true;
+    
+    // Se tiver segredo mas não tiver token, inválido
+    if (!token) {
+      console.log('Token não fornecido, mas webhook está configurado para não exigir validação');
+      return false;
+    }
+    
+    // Verificar se o token fornecido corresponde ao segredo
+    try {
+      // No caso mais simples, o token pode ser o próprio segredo
+      if (token === secret) return true;
+      
+      // Alternativamente, pode ser um hash HMAC
+      // (exemplo para implementações futuras mais seguras)
+      const calculatedToken = crypto
+        .createHmac('sha256', secret)
+        .update(new Date().toISOString().split('T')[0])
+        .digest('hex');
+      
+      return token === calculatedToken;
+    } catch (error) {
+      console.error('Erro ao validar token do webhook:', error);
+      return false;
+    }
+  },
+
+  /**
    * Processa mensagens recebidas via webhook da EvolutionAPI
    */
   processIncomingMessage: async (message: EvolutionWebhookMessage): Promise<WebhookResponse> => {
     try {
       // Verificar se é uma mensagem válida
       if (!message || !message.from || !message.content) {
+        console.log('Mensagem inválida recebida no webhook:', message);
         return {
           success: false,
           message: 'Dados de mensagem inválidos'
@@ -67,6 +103,8 @@ export const WebhookService = {
       
       // Extrair número do telefone (removendo o @c.us se presente)
       const phoneNumber = message.from.replace('@c.us', '');
+      
+      console.log(`Processando mensagem do número: ${phoneNumber}`);
       
       // Verificar se o contato existe no banco
       let contato = await ContatoSimplesModel.findOne({ telefone: phoneNumber });
@@ -84,6 +122,7 @@ export const WebhookService = {
         // Atualizar data de atualização
         contato.atualizadoEm = new Date();
         await contato.save();
+        console.log(`Contato existente atualizado: ${contato.nome} (${phoneNumber})`);
       }
       
       // Salvar a mensagem no banco de dados
@@ -95,6 +134,7 @@ export const WebhookService = {
         
         // Exemplo de lógica para resposta automática
         if (content.includes('ajuda') || content.includes('help')) {
+          console.log(`Mensagem contém palavra-chave para resposta automática: ${content}`);
           // Enviar resposta automática aqui (implementar integração com WhatsAppService)
           return {
             success: true,
@@ -126,6 +166,7 @@ export const WebhookService = {
     try {
       // Verificar se os dados de status são válidos
       if (!delivery || !delivery.id || !delivery.status) {
+        console.log('Status de entrega inválido recebido:', delivery);
         return {
           success: false,
           message: 'Dados de status inválidos'
@@ -173,6 +214,7 @@ export const WebhookService = {
     try {
       // Verificar se os dados de conexão são válidos
       if (!connection || !connection.instance || !connection.state) {
+        console.log('Status de conexão inválido recebido:', connection);
         return {
           success: false,
           message: 'Dados de conexão inválidos'
@@ -186,6 +228,7 @@ export const WebhookService = {
       
       // Se houver QR Code, podemos armazená-lo para exibição na interface
       if (connection.state === 'requiresQrCode' && connection.qrcode) {
+        console.log('QR Code recebido para conexão. Armazenando temporariamente.');
         // Armazenar QR Code temporariamente para exibição na interface
         // Em uma implementação real, poderíamos usar Redis ou outro mecanismo
         // para armazenar dados temporários
@@ -204,19 +247,6 @@ export const WebhookService = {
         data: { error: error instanceof Error ? error.message : 'Erro desconhecido' }
       };
     }
-  },
-  
-  /**
-   * Verifica se o webhook está autenticado corretamente
-   */
-  validateWebhook: (token: string | null, secretKey: string): boolean => {
-    // Verificar se o token está presente e corresponde à chave secreta configurada
-    if (!token) {
-      return false;
-    }
-    
-    // Em um cenário real, usaríamos uma comparação segura ou uma assinatura HMAC
-    return token === secretKey;
   }
 };
 

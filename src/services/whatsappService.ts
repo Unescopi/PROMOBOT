@@ -27,6 +27,7 @@ interface MediaOptions {
 
 /**
  * Serviço para integração com WhatsApp via Evolution API
+ * A Evolution API já está configurada na VPS e a comunicação é feita via webhook
  */
 export class WhatsAppService {
   private apiUrl: string;
@@ -36,6 +37,7 @@ export class WhatsAppService {
     // URL da Evolution API local na VPS (já configurada)
     this.apiUrl = 'http://localhost:8080';
     this.instance = 'PradoBot';
+    console.log(`WhatsAppService inicializado: URL=${this.apiUrl}, Instância=${this.instance}`);
   }
 
   /**
@@ -43,9 +45,12 @@ export class WhatsAppService {
    */
   async checkConnection(): Promise<{ connected: boolean; state?: string; qrCode?: string }> {
     try {
+      console.log(`Verificando status de conexão da instância ${this.instance}...`);
       const response = await axios.get(
         `${this.apiUrl}/instance/connectionState/${this.instance}`
       );
+      
+      console.log('Resposta status conexão:', response.data);
       
       if (response.data && response.data.state) {
         const state = response.data.state;
@@ -81,6 +86,7 @@ export class WhatsAppService {
       formatted = `${formatted}@c.us`;
     }
     
+    console.log(`Telefone formatado: ${phone} → ${formatted}`);
     return formatted;
   }
 
@@ -94,18 +100,22 @@ export class WhatsAppService {
       
       console.log(`Enviando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
       
+      const payload = {
+        number: formattedTo,
+        options: {
+          delay: 1200,
+          presence: 'composing'
+        },
+        textMessage: {
+          text: message
+        }
+      };
+      
+      console.log('Payload do envio:', JSON.stringify(payload));
+      
       const response = await axios.post(
         `${this.apiUrl}/message/text/${this.instance}`,
-        {
-          number: formattedTo,
-          options: {
-            delay: 1200,
-            presence: 'composing'
-          },
-          textMessage: {
-            text: message
-          }
-        }
+        payload
       );
       
       console.log('Resposta do envio de texto:', response.data);
@@ -185,6 +195,8 @@ export class WhatsAppService {
           break;
       }
       
+      console.log('Payload do envio de mídia:', JSON.stringify(payload));
+      
       const response = await axios.post(endpoint, payload);
       
       console.log('Resposta do envio de mídia:', response.data);
@@ -214,6 +226,8 @@ export class WhatsAppService {
    * Envia mensagem via WhatsApp (texto ou mídia)
    */
   async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
+    console.log(`Processando envio de mensagem para ${message.number}`);
+    
     if (message.mediaUrl && message.mediaType) {
       // Se tiver mídia, enviar como mensagem de mídia
       return this.sendMediaMessage(

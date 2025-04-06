@@ -78,24 +78,6 @@ export async function updateConfiguracao(data: Partial<IConfiguracao>): Promise<
 }
 
 /**
- * Obtém valores relacionados à Evolution API
- * @returns Objeto com URL, chave e instância
- */
-export async function getEvolutionApiConfig(): Promise<{ 
-  apiUrl: string; 
-  apiKey: string; 
-  instance: string;
-}> {
-  const config = await getConfiguracao();
-  
-  return {
-    apiUrl: config?.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://localhost:8080',
-    apiKey: config?.apiKey || process.env.EVOLUTION_API_KEY || 'sua-chave-api',
-    instance: process.env.EVOLUTION_INSTANCE || 'promobot'
-  };
-}
-
-/**
  * Obtém valores relacionados ao webhook
  * @returns Objeto com URL e segredo do webhook
  */
