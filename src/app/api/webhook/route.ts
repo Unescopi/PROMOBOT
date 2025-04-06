@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WebhookService } from '@/services/webhookService';
-import { getConfiguracao } from '@/services/configService';
 
 /**
  * Endpoint para receber webhooks da Evolution API
@@ -11,9 +10,8 @@ export async function POST(request: NextRequest) {
     // Obter token do cabeçalho para validação
     const token = request.headers.get('x-webhook-token');
     
-    // Obter configuração atual para verificar a chave secreta do webhook
-    const config = await getConfiguracao();
-    const secretKey = config?.webhookSegredo || process.env.WEBHOOK_SECRET || '';
+    // Obter chave secreta direto do .env
+    const secretKey = process.env.WEBHOOK_SECRET || '';
     
     // Verificar token apenas se um secretKey estiver configurado e for diferente de vazio
     if (secretKey && secretKey.length > 0) {
@@ -33,7 +31,7 @@ export async function POST(request: NextRequest) {
     // Log para debug
     console.log('Webhook recebido:', {
       type: body.type || 'desconhecido',
-      instance: body.instance,
+      instance: body.instance || 'não especificada',
       timestamp: new Date().toISOString()
     });
     
@@ -89,9 +87,11 @@ export async function POST(request: NextRequest) {
       // Tentar processar como mensagem direta se tiver campos relevantes
       if (body.from && (body.body || body.content || body.message)) {
         const adaptedMessage = {
-          from: body.from,
-          content: body.body || body.content || body.message,
+          instance: body.instance || 'direct',
           messageType: body.type || 'text',
+          from: body.from,
+          to: body.to || 'unknown',
+          content: body.body || body.content || body.message || '',
           timestamp: body.timestamp || Date.now(),
           isGroup: body.isGroup || false
         };
