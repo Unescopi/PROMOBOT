@@ -1,91 +1,64 @@
 import mongoose from 'mongoose';
 
-// URI de conexão do MongoDB
-// Em produção, deve ser obtida de variável de ambiente
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/promobot';
+const MONGODB_URI = process.env.MONGODB_URI || '';
+const MONGODB_DB = process.env.MONGODB_DB || 'promobot';
 
-// Timeout para conexão (em milissegundos)
-const CONNECTION_TIMEOUT = parseInt(process.env.MONGODB_CONNECTION_TIMEOUT || '30000', 10); // 30 segundos por padrão
-
-// Interface para cache de conexão
-interface MongooseCache {
-  conn: typeof mongoose | null;
-  promise: Promise<typeof mongoose> | null;
-  lastErrorTime?: number; // Hora do último erro para evitar tentativas frequentes
+if (!MONGODB_URI) {
+  throw new Error('Por favor, defina a variável de ambiente MONGODB_URI');
 }
 
-// Prevenção para evitar criar múltiplas conexões durante hot-reload em desenvolvimento
-const cached: MongooseCache = (global as any).mongoose || { conn: null, promise: null };
+// Configuração do timezone para o Brasil (GMT-3)
+process.env.TZ = 'America/Sao_Paulo';
+console.log(`Timezone configurado para: ${process.env.TZ}`);
+console.log(`Data e hora atual: ${new Date().toISOString()}`);
 
-if (!(global as any).mongoose) {
-  (global as any).mongoose = cached;
+/**
+ * Cache global para a conexão MongoDB
+ */
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
 }
 
 /**
- * Função para conectar ao banco de dados
+ * Conecta ao MongoDB com timeout configurado
  */
 export async function connectToDatabase() {
-  // Se já existe uma conexão, retorná-la
+  const timeoutMs = 30000; // 30 segundos
+  
+  console.log(`Tentando conectar ao MongoDB com timeout de ${timeoutMs}ms`);
+  
   if (cached.conn) {
     return cached.conn;
   }
-  
-  // Se houve um erro recente (nos últimos 10 segundos), não tentar novamente
-  // para evitar sobrecarga de tentativas de conexão
-  if (cached.lastErrorTime && Date.now() - cached.lastErrorTime < 10000) {
-    throw new Error('Conexão com MongoDB falhou recentemente. Aguardando antes de tentar novamente.');
-  }
 
-  // Se ainda não iniciou a conexão, iniciar agora
   if (!cached.promise) {
     const opts = {
-      bufferCommands: false,
-      serverSelectionTimeoutMS: CONNECTION_TIMEOUT,
-      connectTimeoutMS: CONNECTION_TIMEOUT,
-      socketTimeoutMS: CONNECTION_TIMEOUT,
-      family: 4, // Use IPv4, evitando problemas com IPv6
-      retryWrites: true,
-      w: 'majority', // Requer confirmação da maioria dos servidores
+      bufferCommands: true,
+      serverSelectionTimeoutMS: timeoutMs,
+      connectTimeoutMS: timeoutMs,
+      socketTimeoutMS: timeoutMs,
+      // Ajusta a forma como o MongoDB lida com datas
+      // Força o uso do timezone local
+      // startSession: { startDate: new Date() }
     };
 
-    console.log(`Tentando conectar ao MongoDB com timeout de ${CONNECTION_TIMEOUT}ms`);
-
-    // Criar uma promessa com timeout
-    const timeoutPromise = new Promise<typeof mongoose>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Timeout de conexão após ${CONNECTION_TIMEOUT}ms`));
-      }, CONNECTION_TIMEOUT);
-    });
-
-    // Tentar conectar com timeout
-    cached.promise = Promise.race([
-      mongoose
-        .connect(MONGODB_URI, { ...opts, w: 'majority' as const })
-        .then((mongoose) => {
-          console.log('MongoDB conectado com sucesso');
-          // Limpar flag de erro quando conexão bem-sucedida
-          cached.lastErrorTime = undefined;
-          return mongoose;
-        }),
-      timeoutPromise
-    ]).catch((error) => {
-      console.error('Erro ao conectar com MongoDB:', error);
-      // Registrar o tempo do erro
-      cached.lastErrorTime = Date.now();
-      // Limpar a promessa para permitir novas tentativas
-      cached.promise = null;
-      throw error;
-    });
+    mongoose.set('strictQuery', false);
+    
+    cached.promise = mongoose.connect(MONGODB_URI, opts)
+      .then((mongoose) => {
+        console.log('MongoDB conectado com sucesso');
+        return mongoose;
+      })
+      .catch((error) => {
+        console.error('Erro ao conectar ao MongoDB:', error);
+        cached.promise = null;
+        throw error;
+      });
   }
-
-  // Aguardar conexão e retornar
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
-
+  
+  cached.conn = await cached.promise;
   return cached.conn;
 }
 
