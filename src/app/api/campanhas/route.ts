@@ -1,7 +1,14 @@
+// Ajuste do fuso horário para Brasil (GMT-3)
+process.env.TZ = 'America/Sao_Paulo';
+console.log(`[API Campanhas] Timezone configurado para: ${process.env.TZ}`);
+console.log(`[API Campanhas] Data e hora atual do servidor: ${new Date().toISOString()}`);
+console.log(`[API Campanhas] Data e hora local formatada: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`);
+
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import CampanhaModel from '@/models/Campanha';
 import { WhatsAppService } from '@/services/whatsappService';
+import mongoose from 'mongoose';
 
 /**
  * GET - Listar campanhas
