@@ -157,12 +157,20 @@ export default function NovoContato() {
         body: JSON.stringify(dadosContato)
       });
       
-      const data = await response.json();
-      console.log('Resposta da API:', data);
+      let data;
+      try {
+        data = await response.json();
+        console.log('Resposta da API:', data);
+      } catch (jsonError) {
+        console.error('Erro ao processar resposta JSON:', jsonError);
+        const textoResposta = await response.text();
+        console.error('Resposta recebida (texto):', textoResposta.substring(0, 500));
+        throw new Error('Erro ao processar resposta do servidor. Verifique o console para detalhes.');
+      }
       
       if (!response.ok) {
         console.error('Resposta da API com erro:', data);
-        throw new Error(data.message || 'Erro ao criar contato');
+        throw new Error(data?.message || `Erro ao criar contato (${response.status})`);
       }
       
       // Se sucesso, redirecionar para lista de contatos
