@@ -76,8 +76,24 @@ export class WhatsAppService {
     // Remover caracteres não numéricos
     let formatted = phone.replace(/\D/g, '');
     
-    // Adicionar código do país (55) se não existir e número tiver 10 ou 11 dígitos (BR)
-    if (!formatted.startsWith('55') && (formatted.length === 10 || formatted.length === 11)) {
+    // Verificar formato específico para Brasil (padrão da Evolution API)
+    if (formatted.length === 11 && formatted.startsWith('55')) {
+      // Já está no formato correto com DDD e país (55)
+      // Não fazer nada
+    } else if (formatted.length === 11 && !formatted.startsWith('55')) {
+      // Tem 11 dígitos mas não começa com 55, adicionar código do país
+      formatted = `55${formatted}`;
+    } else if (formatted.length === 10 && !formatted.startsWith('55')) {
+      // Tem 10 dígitos (sem o 9 na frente), adicionar código do país
+      formatted = `55${formatted}`;
+    } else if (formatted.length === 9) {
+      // Somente o número, sem DDD e país - geralmente inválido, mas tentaremos
+      console.warn(`Número de telefone curto demais (9 dígitos): ${phone}. Certifique-se de incluir o DDD.`);
+    } else if (formatted.length < 10) {
+      // Número inválido ou muito curto
+      console.error(`Número de telefone inválido: ${phone}`);
+    } else if (!formatted.startsWith('55') && formatted.length >= 10) {
+      // Para outros casos onde não temos 55 no início
       formatted = `55${formatted}`;
     }
     
@@ -113,23 +129,42 @@ export class WhatsAppService {
       
       console.log('Payload do envio:', JSON.stringify(payload));
       
-      const response = await axios.post(
-        `${this.apiUrl}/message/text/${this.instance}`,
-        payload
-      );
-      
-      console.log('Resposta do envio de texto:', response.data);
-      
-      if (response.data && response.data.key) {
-        return {
-          id: response.data.key.id,
-          status: 'sent',
-          to: formattedTo,
-          timestamp: Date.now()
-        };
+      try {
+        const response = await axios.post(
+          `${this.apiUrl}/message/text/${this.instance}`,
+          payload,
+          { timeout: 10000 } // Adiciona um timeout de 10 segundos para a requisição
+        );
+        
+        console.log('Resposta do envio de texto:', JSON.stringify(response.data));
+        
+        if (response.data && response.data.key) {
+          return {
+            id: response.data.key.id,
+            status: 'sent',
+            to: formattedTo,
+            timestamp: Date.now()
+          };
+        } else if (response.data && response.data.status) {
+          // Formato alternativo de resposta
+          return {
+            id: Date.now().toString(),
+            status: response.data.status === 'success' ? 'sent' : 'failed',
+            to: formattedTo,
+            timestamp: Date.now()
+          };
+        } else {
+          console.warn('Resposta inválida da API:', response.data);
+          return null;
+        }
+      } catch (apiError) {
+        console.error('Erro na chamada API para enviar mensagem:', apiError);
+        if (axios.isAxiosError(apiError)) {
+          console.error(`Erro HTTP: ${apiError.response?.status} - ${apiError.response?.statusText}`);
+          console.error('Detalhes:', apiError.response?.data);
+        }
+        throw apiError; // Re-throw para ser capturado pelo catch externo
       }
-      
-      return null;
     } catch (error) {
       console.error('Erro ao enviar mensagem de texto:', error);
       

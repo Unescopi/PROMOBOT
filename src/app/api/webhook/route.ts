@@ -43,24 +43,60 @@ export async function POST(request: NextRequest) {
     // Detectar o formato da Evolution API (pode variar dependendo da versão e configuração)
     
     // Formato específico da Evolution API (v1)
-    if (body.event === 'messages.upsert' && body.data?.messages) {
+    if (body.event === 'messages.upsert' && body.data) {
       console.log('Formato Evolution API v1 detectado (messages.upsert)');
       
-      // Processar a primeira mensagem na lista
-      const message = body.data.messages[0];
-      
-      // Adaptar para o formato esperado pelo WebhookService
-      const adaptedMessage = {
-        instance: body.instance || 'evolution',
-        messageType: message.key.fromMe ? 'outgoing' : 'text',
-        from: message.key.remoteJid,
-        to: message.key.remoteJid,
-        content: message.message?.conversation || message.message?.extendedTextMessage?.text || '',
-        timestamp: message.messageTimestamp * 1000,
-        isGroup: message.key.remoteJid?.endsWith('@g.us') || false
-      };
-      
-      response = await WebhookService.processIncomingMessage(adaptedMessage);
+      // Verificar se temos a propriedade messages no data ou se a mensagem está diretamente no data
+      if (body.data.messages && Array.isArray(body.data.messages) && body.data.messages.length > 0) {
+        // Processar a primeira mensagem na lista
+        const message = body.data.messages[0];
+        
+        // Adaptar para o formato esperado pelo WebhookService
+        const adaptedMessage = {
+          instance: body.instance || 'evolution',
+          messageType: message.key.fromMe ? 'outgoing' : 'text',
+          from: message.key.remoteJid,
+          to: message.key.remoteJid,
+          content: message.message?.conversation || message.message?.extendedTextMessage?.text || '',
+          timestamp: message.messageTimestamp * 1000,
+          isGroup: message.key.remoteJid?.endsWith('@g.us') || false
+        };
+        
+        response = await WebhookService.processIncomingMessage(adaptedMessage);
+      } else if (body.data.key && body.data.message) {
+        // Formato alternativo onde a mensagem está diretamente em data
+        const adaptedMessage = {
+          instance: body.instance || 'evolution',
+          messageType: body.data.key.fromMe ? 'outgoing' : 'text',
+          from: body.data.key.remoteJid,
+          to: body.data.key.remoteJid,
+          content: body.data.message?.conversation || body.data.message?.extendedTextMessage?.text || '',
+          timestamp: body.data.messageTimestamp ? body.data.messageTimestamp * 1000 : Date.now(),
+          isGroup: body.data.key.remoteJid?.endsWith('@g.us') || false
+        };
+        
+        response = await WebhookService.processIncomingMessage(adaptedMessage);
+      } else if (body.data.pushName && body.data.message) {
+        // Outro formato alternativo (observado nos logs)
+        const adaptedMessage = {
+          instance: body.instance || 'evolution',
+          messageType: body.data.key?.fromMe ? 'outgoing' : 'text',
+          from: body.data.key?.remoteJid || `${body.data.pushName}@s.whatsapp.net`,
+          to: body.data.key?.remoteJid || 'unknown',
+          content: body.data.message?.conversation || body.data.message?.extendedTextMessage?.text || '',
+          timestamp: Date.now(),
+          isGroup: false
+        };
+        
+        response = await WebhookService.processIncomingMessage(adaptedMessage);
+      } else {
+        console.log('Formato messages.upsert não reconhecido:', JSON.stringify(body.data).substring(0, 300));
+        // Ainda aceitar o webhook mas avisar sobre o formato
+        return NextResponse.json({
+          success: true,
+          message: 'Formato messages.upsert recebido mas não processado'
+        });
+      }
     }
     // Formato específico da Evolution API (v2)
     else if (body.event === 'message' && body.message) {
