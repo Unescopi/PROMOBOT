@@ -283,6 +283,32 @@ export default function NovaCampanha() {
       if (data.success) {
         toast.success('Campanha criada com sucesso!');
         
+        // Iniciar a campanha se não for agendada
+        if (!formData.dataAgendamento && !formData.horaAgendamento) {
+          try {
+            console.log('Iniciando campanha recém-criada:', data.campanha._id);
+            const iniciarResponse = await fetch('/api/campanhas/iniciar', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ id: data.campanha._id }),
+            });
+            
+            const iniciarData = await iniciarResponse.json();
+            
+            if (iniciarData.success) {
+              toast.success('Campanha iniciada com sucesso!');
+            } else {
+              console.warn('Campanha foi criada mas não pôde ser iniciada:', iniciarData.error);
+              toast.error('Campanha criada, mas não foi possível iniciá-la automaticamente.');
+            }
+          } catch (iniciarError) {
+            console.error('Erro ao iniciar campanha:', iniciarError);
+            toast.error('Campanha criada, mas ocorreu um erro ao iniciá-la automaticamente.');
+          }
+        }
+        
         // Redirecionar para a página de detalhes da campanha após 1 segundo
         setTimeout(() => {
           router.push(`/campanhas/${data.campanha._id}`);
