@@ -7,6 +7,12 @@ if (!MONGODB_URI) {
   throw new Error('Por favor, defina a variável de ambiente MONGODB_URI');
 }
 
+// Interface para o cache de conexão do Mongoose
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+}
+
 // Configuração do timezone para o Brasil (GMT-3)
 process.env.TZ = 'America/Sao_Paulo';
 console.log(`Timezone configurado para: ${process.env.TZ}`);
@@ -15,10 +21,10 @@ console.log(`Data e hora atual: ${new Date().toISOString()}`);
 /**
  * Cache global para a conexão MongoDB
  */
-let cached = global.mongoose;
+let cached: MongooseCache = (global as any).mongoose;
 
 if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
+  cached = (global as any).mongoose = { conn: null, promise: null };
 }
 
 /**
