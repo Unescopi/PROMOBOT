@@ -18,6 +18,11 @@ interface ContatoLean {
 
 export async function POST(request: Request) {
   try {
+    // Log para diagnosticar problemas de horário
+    console.log(`Horário atual do servidor: ${new Date().toISOString()}`);
+    console.log(`Timestamp: ${Date.now()}`);
+    console.log(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    
     // Obter o ID da campanha
     const { id } = await request.json();
     
@@ -41,6 +46,9 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    
+    console.log(`Campanha encontrada: ${campanha.nome}, ID: ${campanha._id}, Status: ${campanha.status}`);
+    console.log(`Data da campanha: ${campanha.criadoEm ? campanha.criadoEm.toISOString() : 'N/A'}`);
     
     // Verificar status da campanha
     if (campanha.status === 'completed') {
