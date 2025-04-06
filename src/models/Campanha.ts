@@ -35,53 +35,68 @@ const EstatisticasSchema = new Schema({
   falhas: { type: Number, default: 0 }
 });
 
-// Schema principal para campanhas
+// Schema para campanhas
 const CampanhaSchema = new Schema({
   nome: { 
     type: String, 
-    required: [true, 'Nome da campanha é obrigatório'],
-    trim: true,
-    maxlength: [200, 'Nome deve ter no máximo 200 caracteres']
+    required: true 
   },
   mensagem: { 
     type: String, 
-    required: [true, 'Mensagem é obrigatória'],
-    trim: true
+    required: true 
   },
   tipo: { 
     type: String, 
-    enum: ['texto', 'imagem', 'video', 'documento'], 
+    enum: ['texto', 'imagem', 'video', 'documento'],
     default: 'texto'
-  },
-  agendamento: { 
-    type: Date
   },
   status: { 
     type: String, 
-    enum: ['draft', 'scheduled', 'running', 'paused', 'completed', 'cancelled'], 
+    enum: ['draft', 'scheduled', 'running', 'paused', 'completed', 'cancelled'],
     default: 'draft'
   },
-  destinatarios: [String],
-  mediaUrl: String,
-  mediaType: String,
-  estatisticas: {
-    type: EstatisticasSchema,
-    default: () => ({
-      total: 0,
-      enviadas: 0,
-      entregues: 0,
-      lidas: 0,
-      respondidas: 0,
-      falhas: 0
-    })
+  agendamento: { 
+    type: Date 
   },
-  criadoEm: { type: Date, default: Date.now },
-  atualizadoEm: { type: Date, default: Date.now }
+  destinatarios: { 
+    type: [String],
+    default: []
+  },
+  mediaUrl: { 
+    type: String 
+  },
+  estatisticas: {
+    total: { type: Number, default: 0 },
+    enviadas: { type: Number, default: 0 },
+    entregues: { type: Number, default: 0 },
+    lidas: { type: Number, default: 0 },
+    respondidas: { type: Number, default: 0 },
+    falhas: { type: Number, default: 0 }
+  }
 }, {
   timestamps: { 
     createdAt: 'criadoEm', 
     updatedAt: 'atualizadoEm' 
   }
+});
+
+// Middleware para garantir que as datas sejam salvas corretamente
+CampanhaSchema.pre('save', function(this: any, next) {
+  // Log para depuração
+  console.log('Salvando campanha com timestamp atual:', new Date().toISOString());
+  console.log('Timestamp atual em ms:', Date.now());
+  
+  // Garantir que criadoEm seja definido se for um novo documento
+  if (this.isNew && !this.criadoEm) {
+    this.criadoEm = new Date();
+    console.log('Nova campanha, definindo criadoEm:', this.criadoEm.toISOString());
+  }
+  
+  // Atualizar atualizadoEm sempre
+  this.atualizadoEm = new Date();
+  console.log('Atualizando atualizadoEm:', this.atualizadoEm.toISOString());
+  
+  next();
 });
 
 // Verifica se o modelo já existe para evitar recompilação durante hot-reload
