@@ -213,12 +213,6 @@ export default function Configuracoes() {
         throw new Error('Nome da empresa é obrigatório');
       }
       
-      // Validar URL da Evolution API se preenchida
-      if (formData.whatsapp.evolutionApiUrl && 
-          !/^https?:\/\/\S+$/.test(formData.whatsapp.evolutionApiUrl)) {
-        throw new Error('URL da Evolution API inválida');
-      }
-      
       // Validar formato do Webhook se preenchido
       if (formData.api.webhookSegredo && 
           !/^[A-Za-z0-9_]+$/.test(formData.api.webhookSegredo)) {
@@ -234,8 +228,6 @@ export default function Configuracoes() {
         },
         whatsapp: {
           whatsappNumber: "", // Este campo será preenchido no backend se necessário
-          evolutionApiUrl: formData.whatsapp.evolutionApiUrl,
-          apiKey: formData.whatsapp.apiKey
         },
         mensagens: {
           assinatura: formData.mensagens.assinatura,
@@ -500,30 +492,6 @@ export default function Configuracoes() {
                 
                 <div className="space-y-6">
                   <div>
-                    <label htmlFor="evolution_api_url" className="block text-sm font-medium text-gray-700 mb-1">
-                      URL da Evolution API
-                    </label>
-                    <input
-                      type="text"
-                      id="evolution_api_url"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                      defaultValue="http://localhost:8080"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="evolution_api_key" className="block text-sm font-medium text-gray-700 mb-1">
-                      API Key
-                    </label>
-                    <input
-                      type="password"
-                      id="evolution_api_key"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                      defaultValue="sua_chave_api_aqui"
-                    />
-                  </div>
-                  
-                  <div>
                     <label htmlFor="webhook_url" className="block text-sm font-medium text-gray-700 mb-1">
                       URL do Webhook
                     </label>
@@ -553,6 +521,14 @@ export default function Configuracoes() {
                     <button className="mt-3 flex items-center text-sm text-blue-600 hover:text-blue-800">
                       <HiRefresh className="mr-1" /> Verificar conexão
                     </button>
+                  </div>
+                  
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <h3 className="font-medium text-blue-800 mb-2">Integração Simplificada</h3>
+                    <p className="text-sm text-blue-700">
+                      A Evolution API já está configurada localmente na VPS e não requer configurações adicionais.
+                      Apenas certifique-se de configurar o URL do webhook acima na sua instância da Evolution API.
+                    </p>
                   </div>
                 </div>
               </div>

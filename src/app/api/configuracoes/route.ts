@@ -244,8 +244,6 @@ function sanitizeConfigData(data: any) {
   if (data.whatsapp) {
     // Usar whatsappNumber diretamente se disponível, caso contrário use telefone
     sanitized.whatsappNumber = data.whatsapp.whatsappNumber || data.whatsapp.telefone?.replace(/\D/g, '') || '';
-    sanitized.evolutionApiUrl = data.whatsapp.evolutionApiUrl?.trim() || '';
-    sanitized.apiKey = data.whatsapp.apiKey?.trim() || '';
   }
   
   if (data.mensagens) {

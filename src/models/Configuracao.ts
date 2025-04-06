@@ -9,8 +9,8 @@ export interface IConfiguracao extends Document {
   
   // WhatsApp
   whatsappNumber: string;
-  evolutionApiUrl: string;
-  apiKey: string;
+  evolutionApiUrl?: string;
+  apiKey?: string;
   
   // Mensagens
   assinatura: string;
