@@ -9,9 +9,10 @@ RUN npm install
 # Copiar restante dos arquivos
 COPY . .
 
-# Criar arquivo .env.local
+# Criar arquivo .env.local com timeout maior para MongoDB
 RUN printf "MONGODB_URI=$MONGODB_URI\n\
 MONGODB_DB=$MONGODB_DB\n\
+MONGODB_CONNECTION_TIMEOUT=30000\n\
 EVOLUTION_API_URL=$EVOLUTION_API_URL\n\
 EVOLUTION_API_KEY=$EVOLUTION_API_KEY\n\
 EVOLUTION_INSTANCE=$EVOLUTION_INSTANCE\n\
@@ -28,4 +29,5 @@ RUN npm run build
 EXPOSE 3001
 ENV PORT=3001
 
-CMD ["npm", "start"] 
+# Usar o comando correto para iniciar com output: standalone
+CMD ["node", ".next/standalone/server.js"] 
