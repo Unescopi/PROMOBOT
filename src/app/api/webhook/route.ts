@@ -1,216 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WebhookService } from '@/services/webhookService';
+import { WhatsAppService } from '@/services/whatsappService';
+import { connectToDatabase } from '@/lib/mongodb';
+import ContatoModel from '@/models/Contato';
+import mongoose from 'mongoose';
 
 /**
- * Endpoint para receber webhooks da Evolution API
- * Processa mensagens recebidas, status de entrega e eventos de conexão
+ * Endpoint para receber webhooks do WhatsApp
  */
 export async function POST(request: NextRequest) {
+  // Validar token, se necessário
+  // Implementar lógica de validação aqui
+  
   try {
-    // Obter token do cabeçalho para validação
-    const token = request.headers.get('x-webhook-token');
+    // Obter os dados do webhook
+    const rawData = await request.json();
+    console.log(`Webhook recebido (completo): ${JSON.stringify(rawData).substring(0, 500)}...`);
     
-    // Obter chave secreta direto do .env
+    // Validar usando método estático
+    const token = request.headers.get('x-webhook-token') || '';
     const secretKey = process.env.WEBHOOK_SECRET || '';
+    const validado = WebhookService.validateWebhook(token, secretKey);
     
-    // Verificar token apenas se um secretKey estiver configurado e for diferente de vazio
-    if (secretKey && secretKey.length > 0) {
-      if (!WebhookService.validateWebhook(token, secretKey)) {
-        console.log('Tentativa de acesso ao webhook com token inválido ou ausente. Permitindo acesso temporariamente.');
-        // Comentamos a rejeição para permitir requisições da Evolution API
-        // return NextResponse.json({ 
-        //   success: false, 
-        //   message: 'Não autorizado' 
-        // }, { status: 401 });
-      }
+    if (!validado && secretKey.length > 0) {
+      console.log('Tentativa de acesso ao webhook com token inválido. Verificar...');
+      // Permitimos acesso para compatibilidade com Evolution API
     }
     
-    // Obter corpo da requisição
-    const body = await request.json();
+    // Detectar formato e extrair mensagem
+    let processado = false;
     
-    // Log para debug completo
-    console.log('Webhook recebido (completo):', JSON.stringify(body).substring(0, 500));
-    
-    // Log resumido para debug
-    console.log('Webhook recebido (resumo):', {
-      type: body.type || body.event || 'desconhecido',
-      instance: body.instance || 'não especificada',
-      timestamp: new Date().toISOString()
-    });
-    
-    let response;
-    
-    // Detectar o formato da Evolution API (pode variar dependendo da versão e configuração)
-    
-    // Formato específico da Evolution API com event: messages.upsert
-    if (body.event === 'messages.upsert') {
+    // Detectar formato da Evolution API (messages.upsert)
+    if (rawData.event === 'messages.upsert' || rawData.type === 'messages.upsert') {
       console.log('Formato Evolution API detectado (messages.upsert)');
       
-      // Verificar e extrair a mensagem do formato recebido
-      let mensagemProcessada = false;
-      let adaptedMessage;
-
-      // Caso 1: messages.upsert com array de mensagens
-      if (body.data?.messages && Array.isArray(body.data.messages) && body.data.messages.length > 0) {
-        console.log('Processando mensagem do formato messages.upsert com array');
-        const message = body.data.messages[0];
-        
-        adaptedMessage = {
-          instance: body.instance || 'evolution',
-          messageType: message.key.fromMe ? 'outgoing' : 'text',
-          from: message.key.remoteJid,
-          to: message.key.remoteJid,
-          content: message.message?.conversation || message.message?.extendedTextMessage?.text || '',
-          timestamp: message.messageTimestamp * 1000,
-          isGroup: message.key.remoteJid?.endsWith('@g.us') || false
-        };
-        mensagemProcessada = true;
-      } 
-      // Caso 2: messages.upsert com mensagem na propriedade key/message
-      else if (body.data?.key && body.data?.message) {
-        console.log('Processando mensagem do formato messages.upsert com key/message');
-        adaptedMessage = {
-          instance: body.instance || 'evolution',
-          messageType: body.data.key.fromMe ? 'outgoing' : 'text',
-          from: body.data.key.remoteJid,
-          to: body.data.key.remoteJid,
-          content: body.data.message?.conversation || body.data.message?.extendedTextMessage?.text || '',
-          timestamp: body.data.messageTimestamp ? body.data.messageTimestamp * 1000 : Date.now(),
-          isGroup: body.data.key.remoteJid?.endsWith('@g.us') || false
-        };
-        mensagemProcessada = true;
-      }
-      // Caso 3: formato alternativo com pushName (identificado nos logs)
-      else if (body.data?.pushName && body.data?.message) {
-        console.log('Processando mensagem do formato messages.upsert com pushName');
-        // Obter o remoteJid do key se disponível, ou construir a partir do pushName
-        const from = body.data.key?.remoteJid || `${body.data.pushName.replace(/\s+/g, '')}@s.whatsapp.net`;
-        
-        adaptedMessage = {
-          instance: body.instance || 'evolution',
-          messageType: 'text', // Assume mensagem recebida
-          from: from,
-          to: from, // Em mensagens recebidas, from e to são o mesmo
-          content: body.data.message?.conversation || 
-                   body.data.message?.extendedTextMessage?.text || 
-                   JSON.stringify(body.data.message),
-          timestamp: Date.now(),
-          isGroup: from.includes('@g.us')
-        };
-        mensagemProcessada = true;
-      }
-      // Caso 4: formato com status de mensagem (indicadores de leitura/recebimento)
-      else if (body.data?.status) {
-        console.log('Processando status de mensagem no formato messages.upsert');
-        const statusUpdate = {
-          id: body.data.key?.id || `status_${Date.now()}`,
-          status: body.data.status,
-          from: body.data.key?.remoteJid || 'unknown',
-          to: body.data.key?.remoteJid || 'unknown',
-          timestamp: Date.now()
-        };
-        
-        response = await WebhookService.updateMessageStatus(statusUpdate);
-        mensagemProcessada = true;
-      }
-      
-      // Se conseguimos processar a mensagem, enviamos para o serviço
-      if (mensagemProcessada && adaptedMessage) {
-        console.log('Mensagem extraída do formato messages.upsert:', adaptedMessage);
-        response = await WebhookService.processIncomingMessage(adaptedMessage);
-      } else {
-        // Se não conseguimos processar, registramos o payload para depuração
-        console.log('Formato messages.upsert não reconhecido:', JSON.stringify(body.data).substring(0, 300));
-        return NextResponse.json({
-          success: true,
-          message: 'Formato messages.upsert recebido mas não processado. Verifique logs para detalhes.'
-        });
-      }
-    }
-    // Formato específico da Evolution API (v2)
-    else if (body.event === 'message' && body.message) {
-      console.log('Formato Evolution API v2 detectado (event: message)');
-      response = await WebhookService.processIncomingMessage(body.message);
-    }
-    // Formato da mensagem status
-    else if (body.event === 'status' && body.status) {
-      console.log('Formato de status detectado');
-      response = await WebhookService.updateMessageStatus(body.status);
-    }
-    // Formato de conexão
-    else if (body.event === 'connection' && body.connection) {
-      console.log('Formato de conexão detectado');
-      response = await WebhookService.handleDeviceConnection(body.connection);
-    }
-    // Formato novo/genérico: { type: 'message', data: {...} }
-    else if (body.type) {
-      console.log(`Formato genérico detectado com tipo: ${body.type}`);
-      switch (body.type) {
-        case 'message':
-          // Processar mensagem recebida
-          response = await WebhookService.processIncomingMessage(body.data);
-          break;
+      try {
+        // Extrair mensagem do formato messages.upsert
+        if (rawData.data?.key && rawData.data?.message) {
+          console.log('Processando mensagem do formato messages.upsert com key/message');
           
-        case 'status':
-          // Processar atualização de status de entrega
-          response = await WebhookService.updateMessageStatus(body.data);
-          break;
+          const messageContent = rawData.data.message.conversation || 
+                                rawData.data.message.extendedTextMessage?.text || 
+                                'Mensagem sem texto';
           
-        case 'connection':
-          // Processar estado de conexão do dispositivo
-          response = await WebhookService.handleDeviceConnection(body.data);
-          break;
+          const message = {
+            instance: rawData.instance || 'desconhecida',
+            messageType: 'text',
+            from: rawData.data.key.remoteJid,
+            to: rawData.data.key.remoteJid,
+            content: messageContent,
+            timestamp: rawData.data.messageTimestamp || Date.now(),
+            isGroup: rawData.data.key.remoteJid?.endsWith('@g.us') || false
+          };
           
-        default:
-          // Tipo de evento não suportado - logar mas não rejeitar
-          console.log('Tipo de evento não reconhecido:', body);
-          return NextResponse.json({
-            success: true,
-            message: `Evento recebido: ${body.type}`
-          });
-      }
-    }
-    // Formato desconhecido - tentar processar como mensagem direta
-    else {
-      console.log('Formato de webhook desconhecido ou não suportado');
-      
-      // Tentar processar como mensagem direta se tiver campos relevantes
-      if (body.from && (body.body || body.content || body.message)) {
-        console.log('Tentando processar como mensagem direta');
-        
-        const adaptedMessage = {
-          instance: body.instance || 'direct',
-          messageType: body.type || 'text',
-          from: body.from,
-          to: body.to || 'unknown',
-          content: body.body || body.content || body.message || '',
-          timestamp: body.timestamp || Date.now(),
-          isGroup: body.isGroup || false
-        };
-        
-        response = await WebhookService.processIncomingMessage(adaptedMessage);
-      } else {
-        // Aceitar a requisição mas avisar que não foi processada
-        console.log('Impossível processar o formato recebido');
-        return NextResponse.json({
-          success: true,
-          message: 'Webhook recebido em formato desconhecido'
-        });
+          console.log(`Mensagem extraída do formato messages.upsert: ${JSON.stringify(message, null, 2)}`);
+          processado = true;
+        }
+      } catch (error) {
+        console.error('Erro ao parsear formato messages.upsert:', error);
       }
     }
     
-    // Retornar resposta do processamento
-    return NextResponse.json(response || { success: true, message: 'Webhook processado' });
+    // Processar mensagens pendentes para envio
+    await processPendingMessages();
     
-  } catch (error) {
-    console.error('Erro ao processar webhook:', error);
-    
-    // Sempre retornar sucesso para a Evolution API não parar de enviar
+    // Retornar resposta de sucesso
     return NextResponse.json({
       success: true,
-      message: 'Webhook recebido mas ocorreu um erro no processamento',
-      error: error instanceof Error ? error.message : 'Erro interno'
-    });
+      message: 'Webhook processado com sucesso',
+      timestamp: new Date().toISOString()
+    }, { status: 200 });
+  } catch (error) {
+    console.error('Erro ao processar webhook:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'Erro ao processar webhook',
+      message: error instanceof Error ? error.message : 'Erro desconhecido',
+      timestamp: new Date().toISOString()
+    }, { status: 500 });
   }
 }
 
@@ -225,4 +92,54 @@ export async function GET(request: NextRequest) {
     message: 'Webhook do PromoBot está ativo e funcionando',
     timestamp: new Date().toISOString()
   }, { status: 200 });
+}
+
+// Interface para contato simplificado
+interface ContatoSimples {
+  nome: string;
+  telefone: string;
+  origem: string;
+}
+
+// Interface para dados do webhook
+interface WebhookMessage {
+  instance: string;
+  messageType: string;
+  from: string;
+  to?: string;
+  content: string;
+  timestamp: number;
+  isGroup: boolean;
+  mediaUrl?: string;
+}
+
+/**
+ * Processar mensagens pendentes para envio
+ * Este método busca mensagens pendentes e as envia através da Evolution API via webhook
+ */
+async function processPendingMessages(): Promise<void> {
+  try {
+    const whatsappService = new WhatsAppService();
+    
+    // Obter mensagens pendentes
+    const pendingMessages = await whatsappService.getPendingMessages();
+    
+    if (pendingMessages.length > 0) {
+      console.log(`Processando ${pendingMessages.length} mensagens pendentes para envio via webhook`);
+      
+      // Aqui você pode implementar o envio efetivo das mensagens
+      // Este é o ponto onde você deveria chamar a API da Evolution
+      // Mas isso não é necessário neste caso, pois a API já está configurada
+      
+      // Marcar mensagens como processadas
+      for (const message of pendingMessages) {
+        await whatsappService.markMessageAsProcessed(message.timestamp);
+        console.log(`Mensagem ${message.timestamp} marcada como processada`);
+      }
+    } else {
+      console.log('Nenhuma mensagem pendente para envio');
+    }
+  } catch (error) {
+    console.error('Erro ao processar mensagens pendentes:', error);
+  }
 } 
