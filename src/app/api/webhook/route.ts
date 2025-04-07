@@ -1,124 +1,159 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { WebhookService } from '@/services/webhookService';
-import { WhatsAppService, EvolutionWebhookMessage } from '@/services/whatsappService';
 import { connectToDatabase } from '@/lib/mongodb';
 import ContatoModel from '@/models/Contato';
-import mongoose from 'mongoose';
 
 /**
  * Endpoint para receber webhooks do WhatsApp
+ * Responde na mesma requisição, no modelo da Evolution API
  */
 export async function POST(request: NextRequest) {
-  // Validar token, se necessário
-  // Implementar lógica de validação aqui
-  
   try {
     // Obter os dados do webhook
-    const rawData = await request.json();
-    console.log(`Webhook recebido (completo): ${JSON.stringify(rawData).substring(0, 500)}...`);
+    const evento = await request.json();
+    console.log(`📥 Webhook recebido: ${JSON.stringify(evento).substring(0, 500)}...`);
     
-    // Validar usando método estático
-    const token = request.headers.get('x-webhook-token') || '';
-    const secretKey = process.env.WEBHOOK_SECRET || '';
-    const validado = WebhookService.validateWebhook(token, secretKey);
-    
-    if (!validado && secretKey.length > 0) {
-      console.log('Tentativa de acesso ao webhook com token inválido. Verificar...');
-      // Permitimos acesso para compatibilidade com Evolution API
-    }
-    
-    // Detectar formato e extrair mensagem
-    let processado = false;
-    let message: EvolutionWebhookMessage | null = null;
-    
-    // Detectar formato da Evolution API (messages.upsert)
-    if (rawData.event === 'messages.upsert' || rawData.type === 'messages.upsert') {
-      console.log('Formato Evolution API detectado (messages.upsert)');
+    // Formato da Evolution API (messages.upsert)
+    if (evento.event === 'messages.upsert' || evento.type === 'messages.upsert') {
+      console.log('🔍 Formato Evolution API detectado (messages.upsert)');
       
       try {
-        // Extrair mensagem do formato messages.upsert
-        if (rawData.data?.key && rawData.data?.message) {
-          console.log('Processando mensagem do formato messages.upsert com key/message');
+        // Extrair dados relevantes
+        if (evento.data?.key && evento.data?.message) {
+          const remoteJid = evento.data.key.remoteJid;
+          const messageContent = evento.data.message.conversation || 
+                               evento.data.message.extendedTextMessage?.text || 
+                               '';
           
-          const messageContent = rawData.data.message.conversation || 
-                                rawData.data.message.extendedTextMessage?.text || 
-                                'Mensagem sem texto';
+          console.log(`📲 Mensagem de ${remoteJid}: "${messageContent}"`);
           
-          message = {
-            instance: rawData.instance || 'desconhecida',
-            messageType: 'text',
-            from: rawData.data.key.remoteJid,
-            to: rawData.data.key.remoteJid,
-            content: messageContent,
-            timestamp: rawData.data.messageTimestamp || Date.now(),
-            isGroup: rawData.data.key.remoteJid?.endsWith('@g.us') || false
+          // Não processar mensagens vazias ou enviadas pelo próprio bot
+          if (!messageContent || evento.data.key.fromMe) {
+            return NextResponse.json({ success: true, message: 'Mensagem ignorada (vazia ou do próprio bot)' });
+          }
+          
+          // Processar a mensagem e gerar resposta
+          const resposta = processarMensagem(messageContent);
+          console.log(`💬 Resposta gerada: "${resposta}"`);
+          
+          // Guardar o contato no banco de dados em segundo plano (não aguardamos)
+          salvarContato(remoteJid).catch(erro => {
+            console.error('Erro ao salvar contato:', erro);
+          });
+          
+          // Construir resposta no mesmo formato esperado pela Evolution API
+          const respostaEvolution = {
+            instance: evento.instance || 'PradoBot',
+            number: remoteJid,
+            options: {
+              delay: 1200,
+              presence: 'composing'
+            },
+            textMessage: {
+              text: resposta
+            }
           };
           
-          console.log(`Mensagem extraída do formato messages.upsert: ${JSON.stringify(message, null, 2)}`);
-          processado = true;
+          console.log(`📤 Respondendo para ${remoteJid}: "${resposta}"`);
           
-          // Processar a mensagem recebida
-          if (message) {
-            await processIncomingMessage(message);
-          }
+          // Retornar a resposta diretamente
+          return NextResponse.json(respostaEvolution);
         }
-      } catch (error) {
-        console.error('Erro ao parsear formato messages.upsert:', error);
+      } catch (erro) {
+        console.error('❌ Erro ao processar formato messages.upsert:', erro);
       }
     }
     
-    // Processar mensagens pendentes para envio
-    await processPendingMessages();
+    // Formato mais simples (direto)
+    else if (evento.from && evento.message) {
+      console.log('🔍 Formato simples detectado');
+      
+      const numeroCliente = evento.from;
+      const textoMensagem = typeof evento.message === 'string' ? evento.message : evento.message.text || '';
+      
+      console.log(`📲 Mensagem de ${numeroCliente}: "${textoMensagem}"`);
+      
+      // Processar a mensagem e gerar resposta
+      const resposta = processarMensagem(textoMensagem);
+      console.log(`💬 Resposta gerada: "${resposta}"`);
+      
+      // Guardar o contato no banco de dados em segundo plano
+      salvarContato(numeroCliente).catch(erro => {
+        console.error('Erro ao salvar contato:', erro);
+      });
+      
+      // Construir resposta
+      const respostaWebhook = {
+        session: evento.session || 'PradoBot',
+        number: numeroCliente,
+        text: resposta
+      };
+      
+      console.log(`📤 Respondendo para ${numeroCliente}: "${resposta}"`);
+      
+      // Retornar a resposta diretamente
+      return NextResponse.json(respostaWebhook);
+    }
     
-    // Retornar resposta de sucesso
-    return NextResponse.json({
-      success: true,
-      message: 'Webhook processado com sucesso',
+    // Formato não reconhecido
+    console.warn('⚠️ Formato de webhook não reconhecido');
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Webhook recebido, mas formato não reconhecido',
       timestamp: new Date().toISOString()
-    }, { status: 200 });
-  } catch (error) {
-    console.error('Erro ao processar webhook:', error);
+    });
+    
+  } catch (erro) {
+    console.error('❌ Erro no processamento do webhook:', erro);
     return NextResponse.json({
       success: false,
-      error: 'Erro ao processar webhook',
-      message: error instanceof Error ? error.message : 'Erro desconhecido',
+      error: 'Erro interno no processamento',
+      message: erro instanceof Error ? erro.message : 'Erro desconhecido',
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
 }
 
 /**
- * Manipulador para verificação do webhook (geralmente GET)
- * Pode ser usado para validar a configuração do webhook na EvolutionAPI
+ * Processa a mensagem recebida e gera uma resposta automática
  */
-export async function GET(request: NextRequest) {
-  console.log('Requisição GET recebida no webhook - Verificação de status');
-  return NextResponse.json({
-    success: true,
-    message: 'Webhook do PromoBot está ativo e funcionando',
-    timestamp: new Date().toISOString()
-  }, { status: 200 });
-}
-
-// Interface para contato simplificado
-interface ContatoSimples {
-  nome: string;
-  telefone: string;
-  origem: string;
+function processarMensagem(textoMensagem: string): string {
+  const mensagem = textoMensagem.toLowerCase();
+  
+  // Regras de resposta automática
+  if (mensagem.includes('olá') || mensagem.includes('ola') || mensagem.includes('oi')) {
+    return 'Olá! Bem-vindo ao PromoBot. Como posso ajudá-lo hoje?';
+  }
+  
+  if (mensagem.includes('ajuda') || mensagem.includes('help')) {
+    return 'Estou aqui para ajudar! Você pode perguntar sobre nossas promoções, produtos ou horários de atendimento.';
+  }
+  
+  if (mensagem.includes('preço') || mensagem.includes('preco') || mensagem.includes('valor')) {
+    return 'Nossos preços variam conforme o produto. Consulte nosso catálogo ou peça informações específicas sobre o item que deseja.';
+  }
+  
+  if (mensagem.includes('promoção') || mensagem.includes('promocao')) {
+    return 'Temos várias promoções ativas! Visite nossa loja ou site para conhecer as ofertas do dia.';
+  }
+  
+  if (mensagem.includes('horário') || mensagem.includes('horario') || mensagem.includes('atendimento')) {
+    return 'Nosso horário de atendimento é de segunda a sexta, das 8h às 18h, e aos sábados das 8h às 12h.';
+  }
+  
+  // Resposta padrão para qualquer outra mensagem
+  return 'Obrigado pelo contato! Um atendente entrará em contato em breve. Ou digite "ajuda" para ver opções de atendimento automático.';
 }
 
 /**
- * Processar mensagem recebida no webhook
+ * Salva o contato no banco de dados
  */
-async function processIncomingMessage(message: EvolutionWebhookMessage): Promise<void> {
+async function salvarContato(numeroCompleto: string): Promise<void> {
   try {
-    // Conectar ao MongoDB se não estiver conectado
+    // Conectar ao MongoDB
     await connectToDatabase();
     
-    console.log(`Processando mensagem do número: ${message.from}`);
-    
-    // Padronizar o número de telefone (remover @s.whatsapp.net e outros caracteres não numéricos)
-    let telefone = message.from;
+    // Padronizar o número de telefone
+    let telefone = numeroCompleto;
     if (telefone.includes('@')) {
       telefone = telefone.split('@')[0]; // Remove a parte após o @ (s.whatsapp.net ou c.us)
     }
@@ -126,64 +161,33 @@ async function processIncomingMessage(message: EvolutionWebhookMessage): Promise
     // Garantir que o telefone tenha apenas números
     telefone = telefone.replace(/\D/g, '');
     
-    console.log(`Número de telefone formatado: ${telefone}`);
+    // Verificar se o contato já existe
+    const contatoExistente = await ContatoModel.findOne({ telefone });
     
-    // Buscar contato existente ou criar novo
-    let contato = await ContatoModel.findOne({ telefone });
-    
-    if (!contato) {
-      try {
-        // Criar contato simplificado
-        const contatoSimples: ContatoSimples = {
-          nome: 'Contato WhatsApp',
-          telefone: telefone,
-          origem: 'webhook'
-        };
-        
-        contato = await ContatoModel.create(contatoSimples);
-        console.log(`Novo contato criado: ${contato._id}, telefone: ${telefone}`);
-      } catch (error) {
-        console.error(`Erro ao criar contato com telefone ${telefone}:`, error);
-        return; // Encerra o processamento se não conseguir criar o contato
-      }
+    if (!contatoExistente) {
+      // Criar contato simplificado
+      const novoContato = await ContatoModel.create({
+        nome: 'Contato WhatsApp',
+        telefone: telefone,
+        origem: 'webhook'
+      });
+      
+      console.log(`✅ Novo contato criado: ${novoContato._id}, telefone: ${telefone}`);
     }
-    
-    // Aqui você pode adicionar código para processar a mensagem, 
-    // como criar uma conversa, salvar a mensagem, etc.
-    console.log(`Mensagem de ${telefone} processada com sucesso: "${message.content}"`);
-    
-  } catch (error) {
-    console.error('Erro ao processar mensagem do webhook:', error);
+  } catch (erro) {
+    console.error(`❌ Erro ao salvar contato ${numeroCompleto}:`, erro);
+    throw erro;
   }
 }
 
 /**
- * Processar mensagens pendentes para envio
- * Este método busca mensagens pendentes e as envia através da Evolution API via webhook
+ * Endpoint GET para verificação/configuração do webhook
  */
-async function processPendingMessages(): Promise<void> {
-  try {
-    const whatsappService = new WhatsAppService();
-    
-    // Obter mensagens pendentes
-    const pendingMessages = await whatsappService.getPendingMessages();
-    
-    if (pendingMessages.length > 0) {
-      console.log(`Processando ${pendingMessages.length} mensagens pendentes para envio via webhook`);
-      
-      // Aqui você pode implementar o envio efetivo das mensagens
-      // Este é o ponto onde você deveria chamar a API da Evolution
-      // Mas isso não é necessário neste caso, pois a API já está configurada
-      
-      // Marcar mensagens como processadas
-      for (const message of pendingMessages) {
-        await whatsappService.markMessageAsProcessed(message.timestamp);
-        console.log(`Mensagem ${message.timestamp} marcada como processada`);
-      }
-    } else {
-      console.log('Nenhuma mensagem pendente para envio');
-    }
-  } catch (error) {
-    console.error('Erro ao processar mensagens pendentes:', error);
-  }
+export async function GET(request: NextRequest) {
+  console.log('✅ Requisição GET recebida no webhook - Verificação de status');
+  return NextResponse.json({
+    success: true,
+    message: 'Webhook do PromoBot está ativo e funcionando',
+    timestamp: new Date().toISOString()
+  });
 } 
