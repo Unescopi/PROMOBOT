@@ -1,4 +1,5 @@
 import axios from 'axios';
+import mongoose, { Collection } from 'mongoose';
 
 /**
  * Interface para mensagem do WhatsApp
@@ -19,25 +20,65 @@ interface SentMessage {
   timestamp: number;
 }
 
+// Interface para mensagem no formato do webhook
+interface WebhookMessage {
+  instance: string;
+  messageType: string;
+  from: string;
+  to: string;
+  content: string;
+  timestamp: number;
+  isGroup: boolean;
+  mediaUrl?: string;
+}
+
 /**
  * Serviço para integração com WhatsApp via Evolution API
  * A comunicação é feita EXCLUSIVAMENTE via webhook
  */
 export class WhatsAppService {
   private instance: string;
+  
+  // Coleção para armazenar mensagens pendentes para envio via webhook
+  private pendingMessages: WebhookMessage[] = [];
+  private messagesCollection: any = null;
 
   constructor() {
     this.instance = 'PradoBot';
-    console.log(`WhatsAppService inicializado: Instância=${this.instance} (comunicação via webhook)`);
+    console.log(`WhatsAppService inicializado: Instância=${this.instance} (comunicação EXCLUSIVAMENTE via webhook)`);
+    
+    // Inicializar conexão com o banco de dados para mensagens pendentes
+    this.initMessagesCollection();
+  }
+  
+  /**
+   * Inicializa a coleção para armazenar mensagens pendentes
+   */
+  private async initMessagesCollection() {
+    try {
+      if (mongoose.connection.readyState === 1) { // Já conectado
+        if (mongoose.connection.db) {
+          this.messagesCollection = mongoose.connection.db.collection('pendingMessages');
+          console.log('Coleção de mensagens pendentes inicializada com sucesso');
+        } else {
+          console.log('Conexão MongoDB não tem uma base de dados associada');
+        }
+      } else {
+        console.log('Conexão MongoDB não está pronta. Mensagens serão armazenadas temporariamente na memória.');
+      }
+    } catch (error) {
+      console.error('Erro ao inicializar coleção de mensagens pendentes:', error);
+    }
   }
 
   /**
    * Verifica o status da conexão com o WhatsApp
+   * No modelo de webhook, apenas retornamos o status presumido
    */
   async checkConnection(): Promise<{ connected: boolean; state?: string; qrCode?: string }> {
     console.log(`Estado da conexão via webhook para instância ${this.instance}`);
     
-    // Como usamos webhooks, assumimos que a conexão está ativa
+    // No modelo de webhook, presumimos que a conexão está ativa
     return {
       connected: true,
       state: 'open'
@@ -72,9 +113,9 @@ export class WhatsAppService {
       formatted = `55${formatted}`;
     }
     
-    // Garantir que termine com @c.us para o formato do webhook
+    // Adicionar formatação do WhatsApp (@s.whatsapp.net) para compatibilidade com webhook
     if (!formatted.includes('@')) {
-      formatted = `${formatted}@c.us`;
+      formatted = `${formatted}@s.whatsapp.net`;
     }
     
     console.log(`Telefone formatado: ${phone} → ${formatted}`);
@@ -82,32 +123,38 @@ export class WhatsAppService {
   }
 
   /**
-   * Registra mensagem para processamento via webhook
-   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
+   * Registra uma mensagem de texto para envio via webhook
+   * Não faz chamadas diretas à API, apenas registra para processamento
    */
   async sendTextMessage(to: string, message: string): Promise<SentMessage | null> {
     try {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Registrando mensagem de texto para envio via webhook para ${formattedTo}`);
-      console.log(`Conteúdo: "${message.substring(0, 30)}..."`);
+      console.log(`Registrando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
       
-      // Registra a mensagem no banco de dados ou em fila para processamento via webhook
-      // NÃO faz chamada direta à API - o webhook cuida disso
-      
-      // Gerar ID único para rastreamento
-      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      
-      // Log para auditoria
-      console.log(`Mensagem ${messageId} registrada para ${formattedTo}`);
-      
-      // Retorna status de registro bem-sucedido
-      return {
-        id: messageId,
-        status: 'queued', // Mensagem na fila para processamento via webhook
+      // Criar mensagem no formato do webhook para processamento
+      const webhookMessage: WebhookMessage = {
+        instance: this.instance,
+        messageType: 'text',
+        from: this.instance,
         to: formattedTo,
-        timestamp: Date.now()
+        content: message,
+        timestamp: Date.now(),
+        isGroup: false
+      };
+      
+      // Armazenar a mensagem para processamento
+      await this.storePendingMessage(webhookMessage);
+      
+      console.log(`Mensagem registrada para envio via webhook (ID: ${webhookMessage.timestamp})`);
+      
+      // Retornar status de enfileiramento bem-sucedido
+      return {
+        id: `msg_${Date.now()}`,
+        status: 'queued',
+        to: formattedTo,
+        timestamp: webhookMessage.timestamp
       };
     } catch (error) {
       console.error('Erro ao registrar mensagem para envio via webhook:', error);
@@ -121,8 +168,8 @@ export class WhatsAppService {
   }
 
   /**
-   * Registra mensagem de mídia para processamento via webhook
-   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
+   * Registra uma mensagem de mídia para envio via webhook
+   * Não faz chamadas diretas à API, apenas registra para processamento
    */
   async sendMediaMessage(
     to: string, 
@@ -134,24 +181,38 @@ export class WhatsAppService {
       // Formatar o número do destinatário
       const formattedTo = this.formatPhoneNumber(to);
       
-      console.log(`Registrando mídia (${mediaType}) para envio via webhook para ${formattedTo}`);
-      console.log(`URL da mídia: ${mediaUrl}`);
+      // Converter URL relativa para absoluta se necessário
+      if (mediaUrl.startsWith('/')) {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`;
+        mediaUrl = `${baseUrl}${mediaUrl}`;
+        console.log(`URL de mídia convertida para absoluta: ${mediaUrl}`);
+      }
       
-      // Registra a mensagem de mídia no banco de dados ou em fila para processamento via webhook
-      // NÃO faz chamada direta à API - o webhook cuida disso
+      console.log(`Registrando mídia (${mediaType}) para ${formattedTo}: ${mediaUrl}`);
       
-      // Gerar ID único para rastreamento
-      const mediaMessageId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      
-      // Log para auditoria
-      console.log(`Mensagem de mídia ${mediaMessageId} registrada para ${formattedTo}`);
-      
-      // Retorna status de registro bem-sucedido
-      return {
-        id: mediaMessageId,
-        status: 'queued', // Mensagem na fila para processamento via webhook
+      // Criar mensagem no formato do webhook para processamento
+      const webhookMessage: WebhookMessage = {
+        instance: this.instance,
+        messageType: mediaType,
+        from: this.instance,
         to: formattedTo,
-        timestamp: Date.now()
+        content: caption,
+        timestamp: Date.now(),
+        isGroup: false,
+        mediaUrl: mediaUrl
+      };
+      
+      // Armazenar a mensagem para processamento
+      await this.storePendingMessage(webhookMessage);
+      
+      console.log(`Mensagem de mídia registrada para envio via webhook (ID: ${webhookMessage.timestamp})`);
+      
+      // Retornar status de enfileiramento bem-sucedido
+      return {
+        id: `media_${Date.now()}`,
+        status: 'queued',
+        to: formattedTo,
+        timestamp: webhookMessage.timestamp
       };
     } catch (error) {
       console.error(`Erro ao registrar mídia para envio via webhook:`, error);
@@ -163,20 +224,94 @@ export class WhatsAppService {
       };
     }
   }
+  
+  /**
+   * Armazena uma mensagem pendente para processamento pelo webhook
+   */
+  private async storePendingMessage(message: WebhookMessage): Promise<void> {
+    try {
+      // Se temos acesso ao MongoDB, armazenar lá
+      if (this.messagesCollection) {
+        await this.messagesCollection.insertOne({
+          ...message,
+          status: 'pending',
+          createdAt: new Date()
+        });
+        console.log('Mensagem armazenada no MongoDB para processamento via webhook');
+      } else {
+        // Caso contrário, armazenar na memória
+        this.pendingMessages.push(message);
+        console.log('Mensagem armazenada na memória para processamento via webhook');
+      }
+    } catch (error) {
+      console.error('Erro ao armazenar mensagem pendente:', error);
+      // Em caso de erro no MongoDB, armazenar na memória como fallback
+      this.pendingMessages.push(message);
+    }
+  }
+  
+  /**
+   * Obtém mensagens pendentes para processamento
+   * Este método pode ser chamado pelo webhook para obter mensagens para envio
+   */
+  async getPendingMessages(): Promise<WebhookMessage[]> {
+    try {
+      if (this.messagesCollection) {
+        const messages = await this.messagesCollection
+          .find({ status: 'pending' })
+          .limit(10)
+          .toArray();
+          
+        console.log(`Recuperadas ${messages.length} mensagens pendentes do MongoDB`);
+        return messages as unknown as WebhookMessage[];
+      } else {
+        console.log(`Recuperadas ${this.pendingMessages.length} mensagens pendentes da memória`);
+        return [...this.pendingMessages];
+      }
+    } catch (error) {
+      console.error('Erro ao obter mensagens pendentes:', error);
+      return [...this.pendingMessages];
+    }
+  }
+  
+  /**
+   * Marca uma mensagem como processada
+   */
+  async markMessageAsProcessed(messageId: number): Promise<void> {
+    try {
+      if (this.messagesCollection) {
+        await this.messagesCollection.updateOne(
+          { timestamp: messageId },
+          { $set: { status: 'processed', processedAt: new Date() } }
+        );
+        console.log(`Mensagem ${messageId} marcada como processada no MongoDB`);
+      } else {
+        // Remover da lista em memória
+        const index = this.pendingMessages.findIndex(msg => msg.timestamp === messageId);
+        if (index >= 0) {
+          this.pendingMessages.splice(index, 1);
+          console.log(`Mensagem ${messageId} removida da lista em memória`);
+        }
+      }
+    } catch (error) {
+      console.error(`Erro ao marcar mensagem ${messageId} como processada:`, error);
+    }
+  }
 
   /**
-   * Registra mensagem (texto ou mídia) para processamento via webhook
-   * Toda comunicação é feita EXCLUSIVAMENTE via webhook
+   * Envia mensagem via WhatsApp (texto ou mídia)
+   * Este método apenas registra a mensagem para processamento via webhook
    */
   async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
-    console.log(`Processando registro de mensagem para ${message.number} via webhook`);
+    console.log(`Registrando mensagem para ${message.number} para processamento via webhook`);
     
     if (message.mediaUrl && message.mediaType) {
       // Se tiver mídia, registrar como mensagem de mídia
       return this.sendMediaMessage(
         message.number,
         message.mediaUrl,
-        message.message
+        message.message,
+        message.mediaType
       );
     } else {
       // Caso contrário, registrar como mensagem de texto

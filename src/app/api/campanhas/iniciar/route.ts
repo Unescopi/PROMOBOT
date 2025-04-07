@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     console.log(`Horário atual do servidor: ${new Date().toISOString()}`);
     console.log(`Timestamp: ${Date.now()}`);
     console.log(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
-    console.log(`Modo de integração: EXCLUSIVAMENTE via webhook`);
+    console.log(`Modo de integração: EXCLUSIVAMENTE via webhook - mensagens enfileiradas para processamento`);
     
     // Obter o ID da campanha
     const { id } = await request.json();
