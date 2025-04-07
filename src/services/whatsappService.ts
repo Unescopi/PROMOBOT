@@ -20,8 +20,8 @@ interface SentMessage {
   timestamp: number;
 }
 
-// Interface para mensagem no formato do webhook
-interface WebhookMessage {
+// Interface para mensagem no formato do webhook da Evolution API
+export interface EvolutionWebhookMessage {
   instance: string;
   messageType: string;
   from: string;
@@ -40,7 +40,7 @@ export class WhatsAppService {
   private instance: string;
   
   // Coleção para armazenar mensagens pendentes para envio via webhook
-  private pendingMessages: WebhookMessage[] = [];
+  private pendingMessages: EvolutionWebhookMessage[] = [];
   private messagesCollection: any = null;
 
   constructor() {
@@ -86,7 +86,7 @@ export class WhatsAppService {
   }
 
   /**
-   * Formata o número de telefone para o padrão do webhook
+   * Formata o número de telefone para o padrão EXATO do webhook Evolution API
    */
   private formatPhoneNumber(phone: string): string {
     // Remover caracteres não numéricos
@@ -113,7 +113,7 @@ export class WhatsAppService {
       formatted = `55${formatted}`;
     }
     
-    // Adicionar formatação do WhatsApp (@s.whatsapp.net) para compatibilidade com webhook
+    // Adicionar o formato EXATO recebido da Evolution API: @s.whatsapp.net
     if (!formatted.includes('@')) {
       formatted = `${formatted}@s.whatsapp.net`;
     }
@@ -124,7 +124,7 @@ export class WhatsAppService {
 
   /**
    * Registra uma mensagem de texto para envio via webhook
-   * Não faz chamadas diretas à API, apenas registra para processamento
+   * Usa o MESMO formato que recebemos da Evolution API
    */
   async sendTextMessage(to: string, message: string): Promise<SentMessage | null> {
     try {
@@ -133,8 +133,8 @@ export class WhatsAppService {
       
       console.log(`Registrando mensagem de texto para ${formattedTo}: ${message.substring(0, 30)}...`);
       
-      // Criar mensagem no formato do webhook para processamento
-      const webhookMessage: WebhookMessage = {
+      // Criar mensagem no MESMO formato que recebemos da Evolution API
+      const evolutionMessage: EvolutionWebhookMessage = {
         instance: this.instance,
         messageType: 'text',
         from: this.instance,
@@ -145,16 +145,16 @@ export class WhatsAppService {
       };
       
       // Armazenar a mensagem para processamento
-      await this.storePendingMessage(webhookMessage);
+      await this.storePendingMessage(evolutionMessage);
       
-      console.log(`Mensagem registrada para envio via webhook (ID: ${webhookMessage.timestamp})`);
+      console.log(`Mensagem registrada no formato Evolution API para ${formattedTo}`);
       
       // Retornar status de enfileiramento bem-sucedido
       return {
         id: `msg_${Date.now()}`,
         status: 'queued',
         to: formattedTo,
-        timestamp: webhookMessage.timestamp
+        timestamp: evolutionMessage.timestamp
       };
     } catch (error) {
       console.error('Erro ao registrar mensagem para envio via webhook:', error);
@@ -169,7 +169,7 @@ export class WhatsAppService {
 
   /**
    * Registra uma mensagem de mídia para envio via webhook
-   * Não faz chamadas diretas à API, apenas registra para processamento
+   * Usa o MESMO formato que recebemos da Evolution API
    */
   async sendMediaMessage(
     to: string, 
@@ -190,8 +190,8 @@ export class WhatsAppService {
       
       console.log(`Registrando mídia (${mediaType}) para ${formattedTo}: ${mediaUrl}`);
       
-      // Criar mensagem no formato do webhook para processamento
-      const webhookMessage: WebhookMessage = {
+      // Criar mensagem no MESMO formato que recebemos da Evolution API
+      const evolutionMessage: EvolutionWebhookMessage = {
         instance: this.instance,
         messageType: mediaType,
         from: this.instance,
@@ -203,16 +203,16 @@ export class WhatsAppService {
       };
       
       // Armazenar a mensagem para processamento
-      await this.storePendingMessage(webhookMessage);
+      await this.storePendingMessage(evolutionMessage);
       
-      console.log(`Mensagem de mídia registrada para envio via webhook (ID: ${webhookMessage.timestamp})`);
+      console.log(`Mensagem de mídia registrada no formato Evolution API para ${formattedTo}`);
       
       // Retornar status de enfileiramento bem-sucedido
       return {
         id: `media_${Date.now()}`,
         status: 'queued',
         to: formattedTo,
-        timestamp: webhookMessage.timestamp
+        timestamp: evolutionMessage.timestamp
       };
     } catch (error) {
       console.error(`Erro ao registrar mídia para envio via webhook:`, error);
@@ -228,7 +228,7 @@ export class WhatsAppService {
   /**
    * Armazena uma mensagem pendente para processamento pelo webhook
    */
-  private async storePendingMessage(message: WebhookMessage): Promise<void> {
+  private async storePendingMessage(message: EvolutionWebhookMessage): Promise<void> {
     try {
       // Se temos acesso ao MongoDB, armazenar lá
       if (this.messagesCollection) {
@@ -254,7 +254,7 @@ export class WhatsAppService {
    * Obtém mensagens pendentes para processamento
    * Este método pode ser chamado pelo webhook para obter mensagens para envio
    */
-  async getPendingMessages(): Promise<WebhookMessage[]> {
+  async getPendingMessages(): Promise<EvolutionWebhookMessage[]> {
     try {
       if (this.messagesCollection) {
         const messages = await this.messagesCollection
@@ -263,7 +263,7 @@ export class WhatsAppService {
           .toArray();
           
         console.log(`Recuperadas ${messages.length} mensagens pendentes do MongoDB`);
-        return messages as unknown as WebhookMessage[];
+        return messages as unknown as EvolutionWebhookMessage[];
       } else {
         console.log(`Recuperadas ${this.pendingMessages.length} mensagens pendentes da memória`);
         return [...this.pendingMessages];
@@ -300,7 +300,7 @@ export class WhatsAppService {
 
   /**
    * Envia mensagem via WhatsApp (texto ou mídia)
-   * Este método apenas registra a mensagem para processamento via webhook
+   * Este método apenas registra a mensagem para processamento via webhook no formato Evolution API
    */
   async sendMessage(message: WhatsAppMessage): Promise<SentMessage | null> {
     console.log(`Registrando mensagem para ${message.number} para processamento via webhook`);

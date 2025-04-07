@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WebhookService } from '@/services/webhookService';
-import { WhatsAppService } from '@/services/whatsappService';
+import { WhatsAppService, EvolutionWebhookMessage } from '@/services/whatsappService';
 import { connectToDatabase } from '@/lib/mongodb';
 import ContatoModel from '@/models/Contato';
 import mongoose from 'mongoose';
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     
     // Detectar formato e extrair mensagem
     let processado = false;
-    let message = null;
+    let message: EvolutionWebhookMessage | null = null;
     
     // Detectar formato da Evolution API (messages.upsert)
     if (rawData.event === 'messages.upsert' || rawData.type === 'messages.upsert') {
@@ -107,22 +107,10 @@ interface ContatoSimples {
   origem: string;
 }
 
-// Interface para dados do webhook
-interface WebhookMessage {
-  instance: string;
-  messageType: string;
-  from: string;
-  to?: string;
-  content: string;
-  timestamp: number;
-  isGroup: boolean;
-  mediaUrl?: string;
-}
-
 /**
  * Processar mensagem recebida no webhook
  */
-async function processIncomingMessage(message: WebhookMessage): Promise<void> {
+async function processIncomingMessage(message: EvolutionWebhookMessage): Promise<void> {
   try {
     // Conectar ao MongoDB se não estiver conectado
     await connectToDatabase();
