@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     
     // Detectar formato e extrair mensagem
     let processado = false;
+    let message = null;
     
     // Detectar formato da Evolution API (messages.upsert)
     if (rawData.event === 'messages.upsert' || rawData.type === 'messages.upsert') {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
                                 rawData.data.message.extendedTextMessage?.text || 
                                 'Mensagem sem texto';
           
-          const message = {
+          message = {
             instance: rawData.instance || 'desconhecida',
             messageType: 'text',
             from: rawData.data.key.remoteJid,
@@ -55,6 +56,11 @@ export async function POST(request: NextRequest) {
           
           console.log(`Mensagem extraída do formato messages.upsert: ${JSON.stringify(message, null, 2)}`);
           processado = true;
+          
+          // Processar a mensagem recebida
+          if (message) {
+            await processIncomingMessage(message);
+          }
         }
       } catch (error) {
         console.error('Erro ao parsear formato messages.upsert:', error);
@@ -111,6 +117,56 @@ interface WebhookMessage {
   timestamp: number;
   isGroup: boolean;
   mediaUrl?: string;
+}
+
+/**
+ * Processar mensagem recebida no webhook
+ */
+async function processIncomingMessage(message: WebhookMessage): Promise<void> {
+  try {
+    // Conectar ao MongoDB se não estiver conectado
+    await connectToDatabase();
+    
+    console.log(`Processando mensagem do número: ${message.from}`);
+    
+    // Padronizar o número de telefone (remover @s.whatsapp.net e outros caracteres não numéricos)
+    let telefone = message.from;
+    if (telefone.includes('@')) {
+      telefone = telefone.split('@')[0]; // Remove a parte após o @ (s.whatsapp.net ou c.us)
+    }
+    
+    // Garantir que o telefone tenha apenas números
+    telefone = telefone.replace(/\D/g, '');
+    
+    console.log(`Número de telefone formatado: ${telefone}`);
+    
+    // Buscar contato existente ou criar novo
+    let contato = await ContatoModel.findOne({ telefone });
+    
+    if (!contato) {
+      try {
+        // Criar contato simplificado
+        const contatoSimples: ContatoSimples = {
+          nome: 'Contato WhatsApp',
+          telefone: telefone,
+          origem: 'webhook'
+        };
+        
+        contato = await ContatoModel.create(contatoSimples);
+        console.log(`Novo contato criado: ${contato._id}, telefone: ${telefone}`);
+      } catch (error) {
+        console.error(`Erro ao criar contato com telefone ${telefone}:`, error);
+        return; // Encerra o processamento se não conseguir criar o contato
+      }
+    }
+    
+    // Aqui você pode adicionar código para processar a mensagem, 
+    // como criar uma conversa, salvar a mensagem, etc.
+    console.log(`Mensagem de ${telefone} processada com sucesso: "${message.content}"`);
+    
+  } catch (error) {
+    console.error('Erro ao processar mensagem do webhook:', error);
+  }
 }
 
 /**
